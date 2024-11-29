@@ -1,7 +1,7 @@
 <!-- PROJECT LOGO -->
 <br />
 <p align="center">
-  <h2 align="center">Installation</h3>
+  <h1 align="center">Client</h3>
 </p>
 
 # Follow the steps below to install dependencies, build the project, and run the ZMQ client.
