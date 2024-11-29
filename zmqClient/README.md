@@ -33,7 +33,13 @@ Compile the client c code
 make
 ```
 
-## 3. Run the Client
+## 3. Give execute permissions to all scripts
+```sh
+cd /path/to/zmqClient/
+chmod +x scripts/*
+```
+
+## 4. Run the Client
 
 Client
 ```sh
