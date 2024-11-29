@@ -14,7 +14,7 @@
 4. The experiment investigates how network congestion and storage bottlenecks impact data processing speed and accuracy.
 5. The proposed method dynamically adjusts resources to maintain optimal performance during heavy network or storage load.
 
-# Client and Server Setup
+## Client and Server Setup
 
 The documentation for the client and server is located in their respective directories, separately for each.
 
