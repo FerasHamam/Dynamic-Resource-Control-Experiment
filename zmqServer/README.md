@@ -30,7 +30,13 @@ wget https://drive.google.com/file/d/1__eWVIw2FTMiNrrmhYGQUrQqNiLxGSKF/view?usp=
 wget https://drive.google.com/file/d/1gLeZFYXLgJimnJOIoutce-Sln2Pr9Ra2/view?usp=sharing
 ```
 
-## 3. Build the server
+## 3. Give execute permissions to all scripts
+```sh
+cd /path/to/zmqServer/
+chmod +x scripts/*
+```
+
+## 4. Build the server
 ```sh
 cd /path/to/zmqServer
 mkdir build
@@ -45,7 +51,7 @@ Compile the server c code
 make
 ```
 
-## 4. Run the Server
+## 5. Run the Server
 
 Server
 ```sh
