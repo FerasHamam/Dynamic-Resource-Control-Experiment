@@ -2,18 +2,14 @@
 
 LOCKFILE="/var/lock/controlNetPrio.lock"
 
-# Function to add a tc filter and class
+# Function to add a tc class and filter
 function add_tc_rule() {
     local interface="$1"
     local ip_addr="$2"
-    local port="$3"
-    local priority="$4"
-
-    # Ensure priority is within a reasonable range (adjust as needed)
-    if [[ $priority -lt 1 || $priority -gt 10 ]]; then
-        echo "Invalid priority. Please enter a value between 1 and 10."
-        return 1
-    fi
+    local base_port="$3"
+    local num_ports="$4"
+    local high_bw="100mbit" # Bandwidth for high-priority class
+    local low_bw="10mbit"  # Bandwidth for low-priority classes
 
     # Add root qdisc if it doesn't exist
     if ! tc qdisc show dev "$interface" | grep -q "htb 1:"; then
@@ -26,47 +22,68 @@ function add_tc_rule() {
         echo "Root qdisc already exists for interface $interface."
     fi
 
-    # Add class for priority if it doesn't already exist
-    if ! tc class show dev "$interface" | grep -q "class htb 1:$priority"; then
-        echo "Adding class 1:$priority for priority $priority."
-        sudo tc class add dev "$interface" parent 1: classid 1:$priority htb rate 10mbit ceil 100mbit || {
-            echo "Failed to add class 1:$priority for interface $interface."
+    # Add high-priority class if it doesn't already exist
+    if ! tc class show dev "$interface" | grep -q "class htb 1:1"; then
+        echo "Adding high-priority class 1:1."
+        sudo tc class add dev "$interface" parent 1: classid 1:1 htb rate "$high_bw" ceil "$high_bw" || {
+            echo "Failed to add high-priority class for interface $interface."
             return 1
         }
     else
-        echo "Class 1:$priority already exists for interface $interface."
+        echo "High-priority class 1:1 already exists for interface $interface."
     fi
 
-    # Add filter for IP and port if it doesn't exist
-    if ! tc filter show dev "$interface" | grep -q "match ip dst $ip_addr match ip dport $port"; then
-        echo "Adding filter for IP $ip_addr, port $port, priority $priority."
-        sudo tc filter add dev "$interface" protocol ip parent 1: prio "$priority" u32 \
-            match ip dst "$ip_addr" match ip dport "$port" 0xffff flowid 1:$priority || {
-            echo "Failed to add filter for IP $ip_addr, port $port, priority $priority."
+    # Add low-priority class if it doesn't already exist
+    if ! tc class show dev "$interface" | grep -q "class htb 1:2"; then
+        echo "Adding low-priority class 1:2."
+        sudo tc class add dev "$interface" parent 1: classid 1:2 htb rate "$low_bw" ceil "$low_bw" || {
+            echo "Failed to add low-priority class for interface $interface."
             return 1
         }
     else
-        echo "Filter for IP $ip_addr, port $port, priority $priority already exists."
+        echo "Low-priority class 1:2 already exists for interface $interface."
     fi
+
+    # Add filters for each port dynamically
+    for ((i=0; i<num_ports; i++)); do
+        local port=$((base_port + i))
+        if [ $i -eq 0 ]; then
+            # High-priority filter for the first port
+            echo "Adding filter for high-priority port $port."
+            sudo tc filter add dev "$interface" protocol ip parent 1: u32 \
+                match ip dst "$ip_addr" match ip dport "$port" 0xffff flowid 1:1 || {
+                echo "Failed to add filter for high-priority port $port."
+                return 1
+            }
+        else
+            # Low-priority filters for the remaining ports
+            echo "Adding filter for low-priority port $port."
+            sudo tc filter add dev "$interface" protocol ip parent 1: u32 \
+                match ip dst "$ip_addr" match ip dport "$port" 0xffff flowid 1:2 || {
+                echo "Failed to add filter for low-priority port $port."
+                return 1
+            }
+        fi
+    done
 }
 
 # Ensure the script is called with proper arguments
 if [[ $# -ne 4 ]]; then
-    echo "Usage: $0 <interface> <ip_address> <port> <priority>"
+    echo "Usage: $0 <interface> <ip_address> <base_port> <num_ports>"
     exit 1
 fi
 
 # Extract arguments
 interface="$1"
 ip_addr="$2"
-port="$3"
-priority="$4"
+base_port="$3"
+num_ports="$4"
 
 # Serialize access using a lock
 (
     flock -x 200 || { echo "Failed to acquire lock. Another instance might be running."; exit 1; }
 
-    echo "Applying TC rule: interface=$interface, IP=$ip_addr, port=$port, priority=$priority"
-    add_tc_rule "$interface" "$ip_addr" "$port" "$priority"
+    echo "Applying TC rules: interface=$interface, IP=$ip_addr, base_port=$base_port, num_ports=$num_ports"
+    add_tc_rule "$interface" "$ip_addr" "$base_port" "$num_ports"
 
 ) 200>"$LOCKFILE"

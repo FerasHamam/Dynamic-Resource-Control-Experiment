@@ -5,14 +5,14 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <pthread.h>
+#include <stdatomic.h>
 
 void *context;
-
 
 char* construct_filepath(const char* filename) {
     char* filepath = (char*) malloc(256 * sizeof(char));
     char new_directory[256];
-    char directory[128] = "~/zmq/data";
+    char directory[128] = "/home/cc/zmq/data";
     
     if (strstr(filename, "reduced") != NULL) {
         snprintf(new_directory, sizeof(new_directory), "%s/%s/", directory, "reduced");
@@ -68,7 +68,6 @@ void* recv_file(void *arg){
     zmq_msg_t msg;
     zmq_msg_init(&msg);
     zmq_msg_recv(&msg, responder, 0);
-    printf("Received chunk from filename: %s\n", (char*) zmq_msg_data(&msg));
     char *data = zmq_msg_data(&msg);
     int length = zmq_msg_size(&msg);
     char *filename = (char *) malloc(length + 1);
@@ -95,7 +94,7 @@ void* recv_file(void *arg){
     int modVal = 50;  
     while(enable)
     {   
-        zmq_msg_init(&msg);
+   	zmq_msg_init(&msg);
         zmq_msg_recv(&msg, responder, 0);
         long chunk_size = zmq_msg_size(&msg);
         char *buffer = (char *) malloc(chunk_size);
@@ -108,14 +107,8 @@ void* recv_file(void *arg){
         memcpy(buffer, zmq_msg_data(&msg), chunk_size);
         fwrite(buffer, 1, chunk_size, file);
         free(buffer);
-        if((chunk_iteration+1)%modVal == 0)
-        {	
-           printf("Congestestion detected while getting %s file, pausing for 5 seconds!!!!!\n", filename);
-            snprintf(ackMsg, ackMsgSize ,"PAUSE");
-        }
-	else
-            sprintf(ackMsg, "Chunck %d from file %s: Received Successfully!", chunk_iteration, filename);  
-        printf("%s\n", ackMsg);  
+        sprintf(ackMsg, "Chunck %d from file %s: Received Successfully!", chunk_iteration, filename);
+	//printf("%s\n", ackMsg);  
         zmq_msg_init_size(&msg, ackMsgSize + 1);
         memcpy(zmq_msg_data(&msg), ackMsg, ackMsgSize + 1);
         zmq_msg_init_data(&msg, ackMsg, ackMsgSize, NULL, NULL);
