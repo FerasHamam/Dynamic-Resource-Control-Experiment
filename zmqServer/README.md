@@ -19,15 +19,15 @@ sudo apt install libzmq3-dev
 ```
 
 ## 2. Download the following
+Go to this [link](https://drive.google.com/drive/folders/1EkHXA-k_TWk6JEP-0-5hSmtBPsAUsPXu?usp=share_link) and download all the files.
+
+From the server side run the following:
 ```sh
-cd /path/to/zmqServer/
-mkdir data
-cd data
-wget https://drive.google.com/file/d/1WNoL5iFOPseMPzpClz_zh1ZrOyEzLX9Z/view?usp=sharing
-wget https://drive.google.com/file/d/14zH0DN-vdwoWsJVIaVoPN-D0rq9kVGqk/view?usp=sharing
-wget https://drive.google.com/file/d/1Se8CultEFrVKjKXVi7Eu0auprnJE4y20/view?usp=sharing
-wget https://drive.google.com/file/d/1__eWVIw2FTMiNrrmhYGQUrQqNiLxGSKF/view?usp=sharing
-wget https://drive.google.com/file/d/1gLeZFYXLgJimnJOIoutce-Sln2Pr9Ra2/view?usp=sharing
+mkdir /path/to/zmqServer/data/
+```
+from your end run the following
+```sh
+scp /path/to/files/* server-ip:/path/to/zmqServer/data/
 ```
 
 ## 3. Give execute permissions to all scripts
