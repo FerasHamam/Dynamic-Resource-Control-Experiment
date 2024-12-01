@@ -9,7 +9,7 @@ function add_tc_rule() {
     local base_port="$3"
     local num_ports="$4"
     local high_bw="100mbit" # Bandwidth for high-priority class
-    local low_bw="10mbit"  # Bandwidth for low-priority classes
+    local low_bw="30mbit"  # Bandwidth for low-priority classes
 
     # Add root qdisc if it doesn't exist
     if ! tc qdisc show dev "$interface" | grep -q "htb 1:"; then

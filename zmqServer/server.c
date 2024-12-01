@@ -144,7 +144,7 @@ void* send_file(void *arg) {
 
     // Send file content
     size_t bytes_read;
-    size_t chunk_size = thread_index == 0 ? HIGH_PRIORITY_CHUNK_SIZE : LOW_PRIORITY_CHUNK_SIZE;
+    size_t chunk_size = 1024;
     char *buffer = (char*) malloc(chunk_size);
     if (buffer == NULL) {
         fprintf(stderr, "Failed to allocate memory\n");
