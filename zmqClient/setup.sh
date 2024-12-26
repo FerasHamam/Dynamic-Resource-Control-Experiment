@@ -6,7 +6,7 @@ echo "Setup for Client started"
 sudo apt-get update
 
 # Install necessary packages
-sudo apt-get install -y build-essential libzmq3-dev python3 python3-pip python3-venv
+sudo apt-get install -y build-essential libzmq3-dev python3 python3-pip python3-venv cmake pkg-config
 
 # Create Python virtual environment
 python3 -m venv ./venv
