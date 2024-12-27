@@ -21,6 +21,7 @@ def get_arguments():
                         help="Data type to use: 'full' or 'reduced'. Default is 'reduced'.")
     parser.add_argument('--output_name', type=str, default="reduced.png",
                         help="Output filename for the plot. Default is 'xgc.png'.")
+    parser.add_argument('--step', type=str, default='0', help="Step number.")
     return parser.parse_args()
 
 def plot(data, r, z, filename):
@@ -45,7 +46,7 @@ def pdist(pt1, pt2):
     y = pt1[1] - pt2[1]
     return math.sqrt(math.pow(x, 2) + math.pow(y, 2))
 
-def blob_detection(fname, dataType):
+def blob_detection(fname, dataType, step):
     image = []
     image.append(cv2.imread(fname))
     boundaries = [
@@ -78,15 +79,15 @@ def blob_detection(fname, dataType):
     total_blob_area = sum(3.14 * math.pow(k.size/2, 2) for k in keypoints)
     
     if keypoints:
-        print('avg diameter', total_diameter / len(keypoints))
+        print(f'step {step}:avg diameter', total_diameter / len(keypoints))
     else:
         print('ERROR: avg diameter', 0)
-    print('aggregate blob area', total_blob_area)
+    print(f'step {step}: aggregate blob area', total_blob_area)
 
     im_with_keypoints = cv2.drawKeypoints(cv2.cvtColor(image[0], cv2.COLOR_BGR2RGB), keypoints, np.array([]), (0, 0, 255), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
     plt.imshow(im_with_keypoints)
     plt.axis('off')
-    plt.savefig(f"blobed_{dataType}.pdf", dpi=600, format='pdf')
+    plt.savefig(f"blobed_{dataType}_"+ step + ".pdf", dpi=600, format='pdf')
 
 
 def main():
@@ -96,6 +97,7 @@ def main():
     path = args.path
     data_type = args.data_type
     output_name = args.output_name
+    step = args.step
 
     if app_name == "xgc":
         fulldata_len = 44928785
@@ -108,10 +110,10 @@ def main():
         reduced_len = 1922788
 
     if data_type == 'full':
-        filename = path + "full_data_" + app_name + ".bin"
+        filename = f"{path}/{data_type}/{step}/full_data_{app_name}.bin"
         data_len = fulldata_len
     elif data_type == 'reduced':
-        filename = path + "reduced_data_" + app_name + "_16.bin"
+        filename = f"{path}/{data_type}/{step}reduced_data_{app_name}_16_{step}.bin"
         data_len = reduced_len
 
     with open(filename, "rb") as f:
@@ -126,9 +128,9 @@ def main():
     start = time.time()
     plot(data, r, z, output_name)
     end = time.time()
-    print("Plot time = ", end - start)
+    print(f"step {step}: Plot time = ", end - start)
 
-    blob_detection(output_name, data_type)
+    blob_detection(output_name, data_type, step)
 
 
 if __name__ == '__main__':

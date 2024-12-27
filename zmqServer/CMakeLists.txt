@@ -6,8 +6,8 @@ find_package(PkgConfig REQUIRED)
 
 pkg_check_modules(ZMQ REQUIRED libzmq)
 
-add_executable(server server.c)
+add_executable(sender sender.c)
 
 include_directories(${ZMQ_INCLUDE_DIRS})
 
-target_link_libraries(server ${ZMQ_LIBRARIES} pthread)
+target_link_libraries(sender ${ZMQ_LIBRARIES} pthread)

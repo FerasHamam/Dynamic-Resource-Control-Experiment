@@ -1,19 +1,36 @@
 cmake_minimum_required(VERSION 3.10)
+project(zmq_receiver C)
 
+# Set C standard
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 
-project(ZMQCLIENT C)
+# Find required packages
+find_package(Threads REQUIRED)
+find_library(ZMQ_LIB zmq)
 
+# Check if ZMQ was found
+if(NOT ZMQ_LIB)
+    message(FATAL_ERROR "ZeroMQ library not found")
+endif()
 
-find_package(PkgConfig REQUIRED)
+# Add include directories
+include_directories(${CMAKE_SOURCE_DIR})
 
+# Create executable
+add_executable(receiver
+    receiver.c
+    step_manager.c
+)
 
-pkg_check_modules(ZMQ REQUIRED libzmq)
+# Link libraries
+target_link_libraries(receiver
+    PRIVATE
+    ${ZMQ_LIB}
+    Threads::Threads
+)
 
-
-add_executable(client client.c)
-
-
-include_directories(${ZMQ_INCLUDE_DIRS})
-
-
-target_link_libraries(client ${ZMQ_LIBRARIES} pthread)
+# Add compiler warnings
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(receiver PRIVATE -Wall -Wextra -Wpedantic)
+endif()

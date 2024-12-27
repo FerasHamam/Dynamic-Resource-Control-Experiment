@@ -12,17 +12,31 @@ import cv2
 from scipy.spatial import Delaunay
 np.set_printoptions(threshold=np.inf)
 
-reduced_filename = "/home/cc/zmq/data/reduced/reduced_data_xgc_16.bin"
-delta_path = "/home/cc/zmq/data/delta/"
 
-orig_output_name = "unblobed_t.png"
-blob_output_name = 'blobed_t.pdf'
 
 deci_ratio = 1024
 if deci_ratio == 16:
     data_len = 2808050
 elif deci_ratio == 1024:
     data_len = 43876
+
+def get_arguments():
+    parser = argparse.ArgumentParser(description='Blob Detection and Plotting Script')
+    parser.add_argument('--step', type=str, default='0', help="Step number.")
+    return parser.parse_args()
+
+args = get_arguments()
+step = args.step
+reduced_filename = f"/home/cc/zmqClient/data/reduced/{step}/reduced_data_xgc_16.bin"
+delta_path = f"/home/cc/zmqClient/data/delta/{step}/"
+
+orig_output_name = f"../data/analysis/{step}/unblobed_t.png"
+blob_output_name = f'../data/analysis/{step}/blobed_t.pdf'
+output_dir_orig = os.path.dirname(orig_output_name)
+output_dir_blob = os.path.dirname(blob_output_name)
+
+os.makedirs(output_dir_orig, exist_ok=True)
+os.makedirs(output_dir_blob, exist_ok=True)
 
 # Read reduced data
 f = open(reduced_filename, "rb")
@@ -34,7 +48,7 @@ data = struct.unpack(str(data_len)+'d', data_str)
 r = struct.unpack(str(data_len)+'d', r_str)
 z = struct.unpack(str(data_len)+'d', z_str)
 
-print("Reduced length:", len(data))
+print(f"step {step}: Reduced length:", len(data))
 
 # Read augmentation data
 f_d = delta_path + "delta_xgc_o.bin"
@@ -61,7 +75,7 @@ data = data + dn
 r = r + rn
 z = z + zn
 
-print("New len:", len(data))
+print(f"step {step}: New len:", len(data))
 
 # Plot data to png
 def plot(data, r, z):
@@ -83,11 +97,11 @@ def plot(data, r, z):
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
     plt.savefig(orig_output_name, dpi=100, format='png')
 
-print("Start plotting")
+print(f"step {step}: Start plotting")
 start = time.time()
 plot(data, r, z)
 end = time.time()
-print("Plot time =", end-start)
+print(f"step {step}: Plot time =", end-start)
 
 
 def pdist(pt1, pt2):
@@ -96,13 +110,9 @@ def pdist(pt1, pt2):
     return math.sqrt(math.pow(x, 2) + math.pow(y, 2))
 
 def blob_detection(fname):
-    ap = argparse.ArgumentParser()
-    ap.add_argument("-i", "--image", help = "path to the image")
-    args = vars(ap.parse_args())
-
     image = cv2.imread(fname)
     height, width, channels = image.shape
-    print("Image H =", height, ", W =", width)
+    print(f"step {step}: Image H =", height, ", W =", width)
     boundaries = [
         ([0, 0, 100], [204, 204, 255]), #red 
         ([86, 31, 4], [220, 88, 50]),
@@ -151,20 +161,20 @@ def blob_detection(fname):
 
     keypoints = detector.detect(gray_image) # keypoints are blobs
     time2 = time.time()
-    print('blob detection time', (time2 - time1))
-    print('blob # %d' %(len(keypoints)))
+    print(f'step {step}: blob detection time', (time2 - time1))
+    print(f'step {step}: blob # %d' %(len(keypoints)))
 
     total_diameter = 0
     total_blob_area = 0
     for k in keypoints:
-        print("Location =", k.pt, "Size =", k.size)
+        print(f"step {step}: Location =", k.pt, "Size =", k.size)
         total_diameter = total_diameter + k.size
         total_blob_area = total_blob_area + 3.14 * math.pow(k.size/2, 2)
     if len(keypoints):
-        print('avg diameter', total_diameter / len(keypoints))
+        print(f'step {step}: avg diameter', total_diameter / len(keypoints))
     else:
         print('ERROR: avg diameter', 0)
-    print('aggregate blob area', total_blob_area)
+    print(f'step {step}: aggregate blob area', total_blob_area)
 
     overlap = 0
     for k in keypoints:
@@ -173,7 +183,7 @@ def blob_detection(fname):
                 overlap = overlap + 1.0
                 break
     if len(keypoints):
-        print('overlap ratio', overlap / len(keypoints))
+        print(f'step {step}: overlap ratio', overlap / len(keypoints))
     else:
         print('ERROR: overlap ratio', 0)
         
@@ -186,13 +196,17 @@ def blob_detection(fname):
     plt.axis('off')
 
     blob_number = len(keypoints)
-    blob_diameter = total_diameter / len(keypoints)
+    if blob_number > 0:
+        blob_diameter = total_diameter / blob_number
+        overlap_ratio = overlap / blob_number
+    else:
+        blob_diameter = 0
+        overlap_ratio = 0
     blob_area = total_blob_area
-    overlap_ratio = overlap / len(keypoints)
-    print("blob_number =", blob_number)
-    print("blob_diameter =", blob_diameter)
-    print("blob_area =", blob_area)
-    print("overlap_ratio =", overlap_ratio)
+    print(f"step {step}: blob_number ={blob_number}")
+    print(f"step {step}: blob_diameter ={blob_diameter}")
+    print(f"step {step}: blob_area ={blob_area}")
+    print(f"step {step}: overlap_ratio ={overlap_ratio}")
     plt.savefig(blob_output_name, dpi=600, format='pdf')
 
     return keypoints
