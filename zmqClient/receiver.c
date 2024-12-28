@@ -108,7 +108,7 @@ void run_blob_detection_scripts(DataQuality data_quality, int step)
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
     double time_taken = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec);
-    printf("System status: %d, It took %.3f seconds to run the blob detection scripts for step (%d)\n", status, time_taken, step);
+    printf("step (%d): System status: %d, It took %.3f seconds to run the blob detection scripts\n", step, status, time_taken);
 }
 
 void *recv_data(void *arg)
@@ -200,7 +200,7 @@ void *recv_data(void *arg)
         {
             printf("step (%d) is complete for Reduced files\n", step);
         }
-        else
+        else if(thread_index == 1 && alert != 1)
         {
             printf("step (%d) is complete for Augmentation files\n", step);
         }
