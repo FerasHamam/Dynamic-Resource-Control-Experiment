@@ -201,10 +201,19 @@ void *send_data(void *arg)
             // if 1 more files to come with the same step,
             // if 2 move to the next step by incrementing step
             char *message = (step == NUM_STEPS-1 && i == num_files-1) ? "0" : (i < num_files - 1) ? "1" : "2";
-            printf("Filename: %s, Port %d, step: %d, Sentfiles: %d out of %d, Sending alert message: %s \n", filenames[i], port, step+1, i, num_files, message);
+            //printf("Filename: %s, Port %d, step: %d, Sentfiles: %d out of %d, Sending alert message: %s \n", filenames[i], port, step+1, i+1, num_files, message);
             zmq_msg_init_size(&msg, strlen(message));
             zmq_msg_init_data(&msg, message, strlen(message), NULL, NULL);
             zmq_msg_send(&msg, sender, 0);
+
+            // Ack message
+            if(*message == '1')
+            {
+                continue;
+            }
+            zmq_msg_init(&msg);
+            zmq_msg_recv(&msg, sender, 0);
+            printf("Received ack message: %s\n", (char *)zmq_msg_data(&msg));
         }
         // Increment step
         step++;

@@ -61,7 +61,6 @@ StepInfo *get_or_create_step(int step, DataQuality quality)
 
     StepInfo *new_step = &step_array.steps[step_array.count];
     new_step->step = step;
-    new_step->isProcessed = false;
     new_step->status.reduced_done = false;
     new_step->status.augmentation_done = (quality == REDUCED ? true : false);
     init_filename_array(&new_step->reduced_filenames);
@@ -82,11 +81,13 @@ extern void run_blob_detection_scripts(DataQuality quality, int step);
 extern void *context;
 
 void *step_processor_thread(void *arg)
-{
-    while (1)
+{   
+    bool enable = true;
+    while (enable)
     {
         if (context == NULL)
             break;
+
 
         pthread_mutex_lock(&mutex);
         int current_step = atomic_load(&current_processing_step);
@@ -95,6 +96,7 @@ void *step_processor_thread(void *arg)
         if (current_step == -1)
         {
             pthread_mutex_unlock(&mutex);
+            enable = false;
             break;
         }
 
@@ -108,30 +110,46 @@ void *step_processor_thread(void *arg)
                 break;
             }
         }
-
-        if (step_info && !step_info->isProcessed && is_step_complete(step_info))
+        
+        if(!step_info)
         {
-            printf("Processing step %d (Reduced files: %d, Augmentation files: %d)\n",
-                   current_step,
-                   step_info->reduced_filenames.filename_count,
-                   step_info->augmentation_filenames.filename_count);
+            pthread_mutex_unlock(&mutex);
+            continue;
+        }
 
-            // Process both quality levels
-            if (step_info->augmentation_filenames.filename_count > 0)
-            {
-                run_blob_detection_scripts(FULL, current_step);
-            }
-            else
-            {
-                run_blob_detection_scripts(REDUCED, current_step);
-            }
+        // Wait for the current step to be complete
+        while (step_info && !is_step_complete(step_info))
+        {
+            pthread_cond_wait(&cond, &mutex);
+        }
 
-            step_info->isProcessed = true;
-            // Move to next step
+        printf("Processing step %d (Reduced files: %d, Augmentation files: %d)\n",
+               current_step,
+               step_info->reduced_filenames.filename_count,
+               step_info->augmentation_filenames.filename_count);
+        pthread_mutex_unlock(&mutex);
+
+        if (step_info->augmentation_filenames.filename_count > 0)
+        {
+            run_blob_detection_scripts(FULL, current_step);
+        }
+        else
+        {
+            run_blob_detection_scripts(REDUCED, current_step);
+        }
+
+        // Move to next step
+        pthread_mutex_lock(&mutex);
+        // 2 because we added -1 step in receiver.c
+        if (current_step == step_array.count - 2)
+        {
+            atomic_store(&current_processing_step, -1);
+        }
+        else
+        {
             atomic_fetch_add(&current_processing_step, 1);
         }
         pthread_mutex_unlock(&mutex);
-        sleep(1); // Avoid busy waiting
     }
     pthread_exit(NULL);
     return NULL;

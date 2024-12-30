@@ -90,7 +90,7 @@ char *construct_filepath(const char *filename, int step)
 }
 
 void run_blob_detection_scripts(DataQuality data_quality, int step)
-{   
+{
     int status;
     if (data_quality == REDUCED)
     {
@@ -195,16 +195,29 @@ void *recv_data(void *arg)
         // if 0 that means the port is complete and no more steps,
         // if 1 more files to come with the same step,
         // if 2 move to the next step by incrementing step
-        // Logging
+
+        // Logging And ack
         if (thread_index == 0 && alert != 1)
         {
-            printf("step (%d) is complete for Reduced files\n", step);
+            char ack_message[256];
+            snprintf(ack_message, sizeof(ack_message), "step (%d): Received Reduced files", step);
+            zmq_msg_init_size(&msg, strlen(ack_message) + 1);
+            memcpy(zmq_msg_data(&msg), ack_message, strlen(ack_message) + 1);
+
+            zmq_msg_send(&msg, socket, 0);
+            zmq_msg_close(&msg);
         }
-        else if(thread_index == 1 && alert != 1)
+        else if (thread_index == 1 && alert != 1)
         {
-            printf("step (%d) is complete for Augmentation files\n", step);
+            char ack_message[256];
+            snprintf(ack_message, sizeof(ack_message), "step (%d): Received Augmentation files", step);
+            zmq_msg_init_size(&msg, strlen(ack_message) + 1);
+            memcpy(zmq_msg_data(&msg), ack_message, strlen(ack_message) + 1);
+            zmq_msg_send(&msg, socket, 0);
+            zmq_msg_close(&msg);
         }
 
+        // Process alert
         switch (alert)
         {
         case 1:
@@ -221,9 +234,10 @@ void *recv_data(void *arg)
     }
 
     // Mark all steps as complete
-    get_or_create_step(-1, quality); 
+    get_or_create_step(-1, quality);
 
     // Cleanup
+    zmq_msg_close(&msg);
     zmq_close(socket);
     pthread_exit(NULL);
     return NULL;

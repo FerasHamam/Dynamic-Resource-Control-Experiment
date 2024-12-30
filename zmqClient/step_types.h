@@ -27,7 +27,6 @@ typedef struct {
     FilenameArray reduced_filenames;
     FilenameArray augmentation_filenames; 
     CompletionStatus status;
-    bool isProcessed;  // Flag to indicate if step has been processed
 } StepInfo;
 
 // Array to store steps
