@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <stdatomic.h>
-#include <time.h>
+#include <sys/time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
@@ -14,7 +14,6 @@
 #define BASE_PORT 4445
 
 void *context;
-struct timespec start, end;
 atomic_long total_bytes_received = 0;
 DataQuality shared_data_quality = FULL;
 
@@ -106,9 +105,9 @@ void run_blob_detection_scripts(DataQuality data_quality, int step)
         snprintf(command, sizeof(command), "/home/cc/zmqClient/venv/bin/python /home/cc/zmqClient/scripts/combine.py --step %d > /dev/tty", step);
         status = system(command);
     }
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    double time_taken = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec);
-    printf("step (%d): System status: %d, It took %.3f seconds to run the blob detection scripts\n", step, status, time_taken);
+    // clock_gettime(CLOCK_MONOTONIC, &end);
+    // double time_taken = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec);
+    // printf("step (%d): System status: %d, It took %.3f seconds to run the blob detection scripts\n", step, status, time_taken);
 }
 
 void *recv_data(void *arg)
@@ -129,8 +128,10 @@ void *recv_data(void *arg)
 
     zmq_msg_t msg;
     bool is_port_complete = false;
-    clock_gettime(CLOCK_MONOTONIC, &start);
 
+    // Timing
+    struct timeval start, end;
+    gettimeofday(&start, NULL);
     while (!is_port_complete)
     {
         // Receive filename
@@ -199,16 +200,28 @@ void *recv_data(void *arg)
         // Logging And ack
         if (thread_index == 0 && alert != 1)
         {
+
+            // Timing
+            gettimeofday(&end, NULL);
+            double elapsed = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
+            printf("step (%d): It took %.3f seconds to receive Reduced files\n", step, elapsed);
+
+            // Ack message
             char ack_message[256];
             snprintf(ack_message, sizeof(ack_message), "step (%d): Received Reduced files", step);
             zmq_msg_init_size(&msg, strlen(ack_message) + 1);
             memcpy(zmq_msg_data(&msg), ack_message, strlen(ack_message) + 1);
-
             zmq_msg_send(&msg, socket, 0);
             zmq_msg_close(&msg);
         }
         else if (thread_index == 1 && alert != 1)
         {
+            // Timing
+            gettimeofday(&end, NULL);
+            double elapsed = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
+            printf("step (%d): It took %.3f seconds to receive Augmentation files\n", step, elapsed);
+
+            // Ack message
             char ack_message[256];
             snprintf(ack_message, sizeof(ack_message), "step (%d): Received Augmentation files", step);
             zmq_msg_init_size(&msg, strlen(ack_message) + 1);
@@ -225,6 +238,8 @@ void *recv_data(void *arg)
         case 2:
             mark_step_complete(step, thread_index == 0 ? FULL : REDUCED);
             step++;
+            // Timing -> Start again
+            gettimeofday(&start, NULL);
             break;
         default:
             mark_step_complete(step, thread_index == 0 ? FULL : REDUCED);

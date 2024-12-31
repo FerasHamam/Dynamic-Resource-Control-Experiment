@@ -12,7 +12,12 @@
 
 #define BASE_PORT 4445
 #define CLIENT_IP "129.114.108.224"
-#define NUM_STEPS 3
+#define NUM_STEPS 1
+
+typedef enum {
+    LOW,
+    HIGH
+} SocketPriority;
 
 // TODO
 volatile bool stop_congestion_thread = false;
@@ -80,46 +85,27 @@ void remove_rules()
 }
 
 // Function to adjust socket priority
-void adjust_socket_shaping()
-{
-    int port = BASE_PORT;
+void adjust_socket_shaping(int port, SocketPriority priority)
+{   
     char interface[50];
     get_interface_for_address(interface, sizeof(interface));
     char command[256];
-    snprintf(command, sizeof(command), "sudo ../scripts/controlNetPrio.sh %s %s %d %d &", interface, CLIENT_IP, port + 1, 4);
+    snprintf(command, sizeof(command), "sudo ../scripts/controlNetPrio.sh %s %s %d %s &", interface, CLIENT_IP, port, priority == HIGH ? "high" : "low");
     if (system(command) != 0)
     {
         fprintf(stderr, "Error: Failed to execute command: %s\n", command);
     }
 }
 
-// TODO
-// This function simulates congestion by periodically adjusting socket priority and removing rules
-void *congestion_control(void *arg)
-{
-    // Timer-related variables
-    time_t last_adjust_time = time(NULL);
-    const int congestion_interval = 5; // Trigger every 5 seconds
-
-    bool is_shaped = false; // Set to true if traffic shaping is enabled
-
-    while (!stop_congestion_thread)
+void add_socket_classes(){
+    char interface[50];
+    get_interface_for_address(interface, sizeof(interface));
+    char command[256];
+    snprintf(command, sizeof(command), "sudo ../scripts/addClasses.sh %s &", interface);
+    if (system(command) != 0)
     {
-        time_t current_time = time(NULL);
-        // Check if 5 seconds have passed since the last adjustment
-        if (difftime(current_time, last_adjust_time) >= congestion_interval)
-        {
-            if (is_shaped)
-                continue;
-            printf("Simulating congestion... Adjusting socket priority and removing rules\n");
-            is_shaped ? remove_rules() : adjust_socket_shaping();
-            is_shaped = !is_shaped;
-            last_adjust_time = current_time; // Update last adjust time
-        }
-        // Sleep for a short period to prevent high CPU usage
-        usleep(100000); // Sleep for 100 ms
+        fprintf(stderr, "Error: Failed to execute command: %s\n", command);
     }
-    return NULL;
 }
 
 void *send_data(void *arg)
@@ -229,6 +215,9 @@ int main()
 {   
     //TODO
     //remove_rules();
+    add_socket_classes();
+    adjust_socket_shaping(BASE_PORT, HIGH);
+    adjust_socket_shaping(BASE_PORT + 1, LOW);
 
     printf("Starting Sender...\n");
     context = zmq_ctx_new();
@@ -266,23 +255,9 @@ int main()
         return EXIT_FAILURE;
     }
 
-    // TODO
-    // Create a thread for congestion control
-    // pthread_t congestion_thread;
-    // if (pthread_create(&congestion_thread, NULL, congestion_control, NULL) != 0)
-    // {
-    //     fprintf(stderr, "Error: Failed to create congestion control thread\n");
-    //     return EXIT_FAILURE;
-    // }
-
     // Wait for the send file thread to finish
     pthread_join(send_thread_hq, NULL);
     pthread_join(send_thread_lq, NULL);
-
-    // TODO
-    // // Stop the congestion control thread
-    // stop_congestion_thread = true;
-    // pthread_join(congestion_thread, NULL);
 
     // Clean up ZeroMQ context
     zmq_ctx_destroy(context);
