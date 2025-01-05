@@ -3,7 +3,7 @@
   <h1 align="center">Topology Scripts</h3>
 </p>
 
-# Follow the steps below to install dependencies, build the project, and run the ZMQ server.
+# Follow the steps below to control the topology bandwidth.
 
 ## 1. Give permission to the script
 
