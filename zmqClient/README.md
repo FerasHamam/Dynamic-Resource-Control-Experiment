@@ -6,19 +6,21 @@
 
 # Follow the steps below to install dependencies, build the project, and run the ZMQ client.
 
-## 1. Install Dependencies
+## 1. Give execute permissions to all scripts
+```sh
+cd /path/to/zmqClient/
+chmod +x scripts/*
+```
+
+## 2. Install Dependencies
 
 First, update your package lists and install the necessary dependencies:
 
 ```sh
-sudo apt update
-sudo apt install cmake
-sudo apt install pkg-config
-sudo apt install build-essential
-sudo apt install libzmq3-dev
+sudo scripts/setup.sh
 ```
 
-## 2. Build the client
+## 3. Build the client
 ```sh
 cd /path/to/zmqClient
 mkdir build
@@ -31,12 +33,6 @@ cmake ..
 Compile the client c code
 ```sh
 make
-```
-
-## 3. Give execute permissions to all scripts
-```sh
-cd /path/to/zmqClient/
-chmod +x scripts/*
 ```
 
 ## 4. Run the Client

@@ -97,6 +97,7 @@ void adjust_socket_shaping(int port, SocketPriority priority)
     }
 }
 
+// Function to add socket classes
 void add_socket_classes(){
     char interface[50];
     get_interface_for_address(interface, sizeof(interface));
@@ -214,7 +215,7 @@ void *send_data(void *arg)
 int main()
 {   
     //TODO
-    //remove_rules();
+    remove_rules();
     add_socket_classes();
     adjust_socket_shaping(BASE_PORT, HIGH);
     adjust_socket_shaping(BASE_PORT + 1, LOW);

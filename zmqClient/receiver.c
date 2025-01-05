@@ -105,8 +105,6 @@ void run_blob_detection_scripts(DataQuality data_quality, int step)
         snprintf(command, sizeof(command), "/home/cc/zmqClient/venv/bin/python /home/cc/zmqClient/scripts/combine.py --step %d > /dev/tty", step);
         status = system(command);
     }
-    // clock_gettime(CLOCK_MONOTONIC, &end);
-    // double time_taken = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec);
     // printf("step (%d): System status: %d, It took %.3f seconds to run the blob detection scripts\n", step, status, time_taken);
 }
 
