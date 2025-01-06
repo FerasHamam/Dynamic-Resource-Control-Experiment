@@ -17,7 +17,7 @@ chmod +x scripts/*
 First, update your package lists and install the necessary dependencies:
 
 ```sh
-sudo scripts/setup.sh
+sudo ./scripts/setup.sh
 ```
 
 ## 3. Build the client
