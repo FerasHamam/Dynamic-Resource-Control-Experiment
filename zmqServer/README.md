@@ -29,7 +29,7 @@ chmod +x scripts/*
 First, update your package lists and install the necessary dependencies:
 
 ```sh
-sudo scripts/setup.sh
+sudo ./setup.sh
 ```
 
 ## 4. Build the server
