@@ -6,7 +6,10 @@
 
 # Topologies:
 
-## 1. 4 Nodes & 1 Bridge Same Site
+## A. 4 Nodes & 1 Bridge Same Site
 
+![alt text](https://github.com/FerasHamam/Dynamic-Resource-Control-Experiment/blob/master/Fabric-Experiments/exp1-ovs-4N1B/fig/Testbed-openvswitch-1.png)
 
-## 2. 4 Nodes & 1 Bridge Same Site
+## B. 4 Nodes & 1 Bridge Same Site
+
+![alt text](https://github.com/FerasHamam/Dynamic-Resource-Control-Experiment/blob/master/Fabric-Experiments/exp2-ovs-4N2B/fig/Testbed-openvswitch-2.png?raw=true)
