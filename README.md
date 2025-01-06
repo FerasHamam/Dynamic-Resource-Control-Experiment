@@ -20,4 +20,7 @@ The documentation for the client and server is located in their respective direc
 
 ## Contact
 
-fih@njit.edu - feras.i.hamam@gmail.com
+fih@njit.edu    - feras.i.hamam@gmail.com
+
+sa2994@njit.edu - SuhaibAtef20@gmail.com
+
