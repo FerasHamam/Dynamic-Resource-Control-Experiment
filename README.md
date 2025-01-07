@@ -16,7 +16,7 @@
 
 ## Client and Server Setup
 
-The documentation for the client and server is located in their respective directories, separately for each.
+The documentation for the receiver and sender is located in their respective directories, separately for each.
 
 ## Contact
 
