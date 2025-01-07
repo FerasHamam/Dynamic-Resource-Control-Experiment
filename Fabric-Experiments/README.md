@@ -6,7 +6,7 @@
 
 # Topologies:
 
-## 1. 4 Nodes & 1 Bridge Same Site
+## A. 4 Nodes & 1 Bridge Same Site
 
 
-## 2. 4 Nodes & 1 Bridge Same Site
+## B. 4 Nodes & 1 Bridge Same Site

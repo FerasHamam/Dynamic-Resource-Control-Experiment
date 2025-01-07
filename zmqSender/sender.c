@@ -11,7 +11,7 @@
 #include <time.h>
 
 #define BASE_PORT 4445
-#define CLIENT_IP "129.114.108.224"
+#define CLIENT_IP "CLIENT_IP"
 #define NUM_STEPS 1
 
 typedef enum {
