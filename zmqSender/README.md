@@ -1,7 +1,7 @@
 <!-- PROJECT LOGO -->
 <br />
 <p align="center">
-  <h1 align="center">Server</h3>
+  <h1 align="center">Sender</h3>
 </p>
 
 # Follow the steps below to install dependencies, build the project, and run the ZMQ sender.
