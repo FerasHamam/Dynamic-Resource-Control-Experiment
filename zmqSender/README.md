@@ -9,7 +9,7 @@
 ## 1. Download the following
 Go to this [link](https://drive.google.com/drive/folders/1EkHXA-k_TWk6JEP-0-5hSmtBPsAUsPXu?usp=share_link) and download all the files.
 
-From the server side run the following:
+From the sender side run the following:
 ```sh
 mkdir /path/to/zmqSender/data/
 ```
@@ -42,14 +42,14 @@ Run CMake to configure the project
 ```sh
 cmake ..
 ```
-Compile the server c code
+Compile the sender c code
 ```sh
 make
 ```
 
-## 5. Run the Server
+## 5. Run the Sender
 
-Server
+Sender
 ```sh
 ./sender
 ```
