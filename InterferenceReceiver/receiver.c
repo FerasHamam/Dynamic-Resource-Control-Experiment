@@ -71,6 +71,8 @@ void *receive_file(void *arg)
         return NULL;
     }
 
+    printf("Thread %d: Listening on port %d\n", thread_index, port);
+
     // Receive the filename first
     zmq_msg_t msg;
     zmq_msg_init(&msg);
@@ -85,6 +87,7 @@ void *receive_file(void *arg)
     char filename[128];
     snprintf(filename, sizeof(filename), "%s", (char *)zmq_msg_data(&msg));
     zmq_msg_close(&msg);
+    printf("Thread %d: Receiving file: %s\n", thread_index, filename);
 
     int iteration = 0;
 

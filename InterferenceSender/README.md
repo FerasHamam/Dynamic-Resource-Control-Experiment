@@ -35,7 +35,13 @@ Compile the interference sender c code
 make
 ```
 
-## 4. Run the Interference Sender
+## 4. Create noise files
+
+```sh
+dd if=/dev/urandom of={file_name}.bin bs={file_size}M count=1
+```
+
+## 5. Run the Interference Sender
 
 sender
 ```sh

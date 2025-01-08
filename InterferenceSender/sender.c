@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <sys/time.h>
 
 #define CLIENT_IP "CLIENT_IP" // Update with the client's IP
 #define BASE_PORT 5555
@@ -73,17 +74,19 @@ void *send_file(void *arg)
     int iteration = 0;
     while (1)
     {   
+        // Timing
+        struct timeval start, end;
+        gettimeofday(&start, NULL);
         printf("Thread %d: Sending file %s, iteration %d\n", thread_index, filename, iteration);
         // Reset file pointer to the beginning
         rewind(file);
 
         // Send file data in chunks
         size_t bytes_read;
-        while ((bytes_read = fread(buffer + 50, 1, chunk_size, file)) > 0)
+        while ((bytes_read = fread(buffer, 1, chunk_size, file)) > 0)
         {
             // Modify the chunk with the thread index and iteration
-            snprintf(buffer, 50, "Index:%d Iteration:%d\n", thread_index, iteration);
-            zmq_msg_init_data(&msg, buffer, bytes_read + 50, NULL, NULL);
+            zmq_msg_init_data(&msg, buffer, bytes_read, NULL, NULL);
             zmq_msg_send(&msg, sender, 0);
         }
 
@@ -92,7 +95,14 @@ void *send_file(void *arg)
         zmq_msg_send(&msg, sender, 0);
 
         // Wait before sending the file again
-        sleep(10*(thread_index+2));
+        double elapsed;
+        double interval = 10 *(thread_index+1);
+        do{
+            usleep(100000);
+            gettimeofday(&end, NULL);
+            elapsed = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
+        }while(elapsed < interval);
+
         iteration++;
     }
 
@@ -157,7 +167,7 @@ int main()
     if (!filenames)
     {
         zmq_close(init_socket);
-        zmq_ctx_term(context);
+        zmq_ctx_destroy(context);
         return EXIT_FAILURE;
     }
 
