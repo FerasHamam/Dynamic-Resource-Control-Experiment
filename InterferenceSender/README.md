@@ -52,11 +52,25 @@ Compile the interference sender c code
 make
 ```
 
-## 5. Create noise files
+## 5. Create noise files (No naming conventions use whatever suits you)
 
 ```sh
 dd if=/dev/urandom of={file_name}.bin bs={file_size}M count=1
 ```
+
+## 5. Create interval text file for each noise file that you made
+1. Create the file
+```sh
+vim intervals.txt
+```
+
+2. For example if you have create 3 noise files, you must specify 3 numbers.
+
+```sh
+10 20 30
+```
+
+3. Save the file 
 
 ## 6. Run the Interference Sender
 

@@ -16,6 +16,7 @@ typedef struct
 {
     char *filename;
     int thread_index;
+    int interval;
 } ThreadArgs;
 
 void *send_file(void *arg)
@@ -23,7 +24,9 @@ void *send_file(void *arg)
     ThreadArgs *args = (ThreadArgs *)arg;
     char *filename = args->filename;
     int thread_index = args->thread_index;
+    int interval = args->interval;
 
+    printf("Thread %d: Sending file %s using interval %d\n", thread_index, filename, interval);
     // Initialize the ZMQ socket for file transfer
     zmq_msg_t msg; 
     void *sender = zmq_socket(context, ZMQ_PUSH);
@@ -96,7 +99,6 @@ void *send_file(void *arg)
 
         // Wait before sending the file again
         double elapsed;
-        double interval = 10 *(thread_index+1);
         do{
             usleep(100000);
             gettimeofday(&end, NULL);
@@ -142,6 +144,47 @@ char **get_filenames(const char *directory, int *file_count)
     return filenames;
 }
 
+int *get_intervals(const char *filename, int *count) {
+    FILE *file;
+    int *intervals = NULL;
+    int capacity = 10;
+
+    intervals = (int *)malloc(capacity * sizeof(int));
+    if (intervals == NULL) {
+        perror("Memory allocation failed");
+        return NULL;
+    }
+
+    file = fopen(filename, "r");
+    if (file == NULL) {
+        perror("Error opening file");
+        free(intervals);
+        return NULL;
+    }
+
+    // Read intervals from the file into the dynamic array
+    int temp;
+    *count = 0;
+    while (fscanf(file, "%d", &temp) == 1) {
+        if (*count >= capacity) {
+            // Increase the array size
+            capacity *= 2;
+            int *new_intervals = (int *)realloc(intervals, capacity * sizeof(int));
+            if (new_intervals == NULL) {
+                perror("Memory reallocation failed");
+                free(intervals);
+                fclose(file);
+                return NULL;
+            }
+            intervals = new_intervals;
+        }
+        intervals[(*count)++] = temp;
+    }
+
+    fclose(file);
+    return intervals;  // Return the dynamic array
+}
+
 int main()
 {
     printf("Starting File Sender...\n");
@@ -171,6 +214,10 @@ int main()
         return EXIT_FAILURE;
     }
 
+    // Get intervals from the "intervals.txt" file
+    char *intervals_filename = "../intervals.txt";
+    int *intervals = get_intervals(intervals_filename, &file_count);
+
     // Send the number of files to the client
     zmq_send(init_socket, &file_count, sizeof(file_count), 0);
     zmq_close(init_socket);
@@ -183,6 +230,7 @@ int main()
         ThreadArgs *args = malloc(sizeof(ThreadArgs));
         args->filename = filenames[i];
         args->thread_index = i;
+        args->interval = intervals[i];
 
         if (pthread_create(&threads[i], NULL, send_file, args) != 0)
         {
