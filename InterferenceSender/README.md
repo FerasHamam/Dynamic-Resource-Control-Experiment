@@ -64,7 +64,7 @@ dd if=/dev/urandom of={file_name}.bin bs={file_size}M count=1
 vim intervals.txt
 ```
 
-2. If you have created 3 noise files, specify 3 numbers in the file. For example:
+2. If you have created 3 noise files, specify 3 numbers (the metric is seconds) in the file. For example:
 ```sh
 10 20 30
 ```
