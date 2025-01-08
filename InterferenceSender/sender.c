@@ -6,7 +6,7 @@
 #include <unistd.h>
 #include <dirent.h>
 
-#define CLIENT_IP "129.114.108.224" // Update with the client's IP
+#define CLIENT_IP "CLIENT_IP" // Update with the client's IP
 #define BASE_PORT 5555
 
 void *context;
