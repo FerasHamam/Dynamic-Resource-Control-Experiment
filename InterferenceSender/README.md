@@ -58,21 +58,20 @@ make
 dd if=/dev/urandom of={file_name}.bin bs={file_size}M count=1
 ```
 
-## 5. Create interval text file for each noise file that you made
-1. Create the file
+## 6. Create interval text file for each noise file that you made
+1. Create the file:
 ```sh
 vim intervals.txt
 ```
 
-2. For example if you have create 3 noise files, you must specify 3 numbers.
-
+2. If you have created 3 noise files, specify 3 numbers in the file. For example:
 ```sh
 10 20 30
 ```
 
-3. Save the file 
+3. Save the file.
 
-## 6. Run the Interference Sender
+## 7. Run the Interference Sender
 
 sender
 ```sh
