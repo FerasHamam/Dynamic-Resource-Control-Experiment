@@ -3,8 +3,10 @@
 #Run the setup
 ./setup.sh
 
-# Disable firewall in port 4444 in order for the Socket to communicate
-sudo firewall-cmd --zone=public --add-port=4444/tcp --permanent
+# Disable firewall in ports 4444 to 4447 in order for the Socket to communicate
+for port in {4444..4448}; do
+    sudo firewall-cmd --zone=public --add-port=${port}/tcp --permanent
+done
 sudo firewall-cmd --reload
 
 # Run the compiled server C code
