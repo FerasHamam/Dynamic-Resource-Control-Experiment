@@ -20,7 +20,24 @@ First, update your package lists and install the necessary dependencies:
 sudo ./scripts/setup.sh
 ```
 
-## 3. Build the sender
+## 3. Specify the client ip
+
+Update client_ip on sender.c file line 10:
+
+1. 
+```sh
+vim sender.c
+```
+2.
+```sh
+Search for CLIENT_IP using ? - Or go to line 10
+```
+3.
+```sh
+#define CLIENT_IP "CLIENT_IP" // Update with the client's IP
+```
+
+## 4. Build the sender
 ```sh
 cd /path/to/InterferenceSender
 mkdir build
@@ -35,13 +52,13 @@ Compile the interference sender c code
 make
 ```
 
-## 4. Create noise files
+## 5. Create noise files
 
 ```sh
 dd if=/dev/urandom of={file_name}.bin bs={file_size}M count=1
 ```
 
-## 5. Run the Interference Sender
+## 6. Run the Interference Sender
 
 sender
 ```sh
