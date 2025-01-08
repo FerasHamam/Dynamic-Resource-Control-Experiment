@@ -80,7 +80,7 @@ void remove_rules()
     char interface[50];
     get_interface_for_address(interface, sizeof(interface));
     char command[256];
-    snprintf(command, sizeof(command), "sudo ../scripts/removeRules.sh %s &", interface);
+    snprintf(command, sizeof(command), "sudo ../scripts/removeRules.sh %s", interface);
     system(command);
 }
 
@@ -90,7 +90,7 @@ void adjust_socket_shaping(int port, SocketPriority priority)
     char interface[50];
     get_interface_for_address(interface, sizeof(interface));
     char command[256];
-    snprintf(command, sizeof(command), "sudo ../scripts/controlNetPrio.sh %s %s %d %s &", interface, CLIENT_IP, port, priority == HIGH ? "high" : "low");
+    snprintf(command, sizeof(command), "sudo ../scripts/controlNetPrio.sh %s %s %d %s", interface, CLIENT_IP, port, priority == HIGH ? "high" : "low");
     if (system(command) != 0)
     {
         fprintf(stderr, "Error: Failed to execute command: %s\n", command);
@@ -102,7 +102,7 @@ void add_socket_classes(){
     char interface[50];
     get_interface_for_address(interface, sizeof(interface));
     char command[256];
-    snprintf(command, sizeof(command), "sudo ../scripts/addClasses.sh %s &", interface);
+    snprintf(command, sizeof(command), "sudo ../scripts/addClasses.sh %s", interface);
     if (system(command) != 0)
     {
         fprintf(stderr, "Error: Failed to execute command: %s\n", command);
