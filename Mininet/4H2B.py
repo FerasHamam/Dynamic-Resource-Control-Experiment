@@ -77,7 +77,7 @@ def sshd( network, routes=None, switch=None ):
 
 if __name__ == '__main__':
     import argparse
-
+    os.system('sudo mn -c')
     parser = argparse.ArgumentParser(description="Mininet SSH Daemon Setup")
     parser.add_argument('--hosts', type=int, default=2, help="Number of hosts per switch")
     parser.add_argument('--switches', type=int, default=2, help="Number of switches")
