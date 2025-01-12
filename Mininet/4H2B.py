@@ -10,14 +10,8 @@ from mininet.net import Mininet
 from mininet.node import Node
 from mininet.link import TCLink
 from mininet.cli import CLI
-<<<<<<< Updated upstream
-from mininet.log import lg, info
-from mininet.util import waitListening
-from mininet.topo import Topo
-=======
 from mininet.log import setLogLevel
 import os
->>>>>>> Stashed changes
 
 
 USERNAME = os.getlogin()
@@ -54,54 +48,6 @@ def connectToRootNS( network, switch, ip, routes ):
     for route in routes:
         root.cmd( 'route add -net ' + route + ' dev ' + str( intf ) )
 
-<<<<<<< Updated upstream
-# pylint: disable=too-many-arguments
-def sshd( network, routes=None, switch=None ):
-    """Start a network, connect it to root ns, and run sshd on all hosts.
-       ip: root-eth0 IP address in root namespace (10.123.123.1/32)
-       routes: Mininet host networks to route to (10.0/24)
-       switch: Mininet switch to connect to root namespace (s1)"""
-    if not switch:
-        switch = network[ 's1' ]  # switch to use
-    if not routes:
-        routes = [ '10.0.0.0/24' ]
-    connectToRootNS( network, switch, IP, routes )
-    for host in network.hosts:
-        host.cmd( CMD + ' ' + OPTS + '&' )
-    info( "*** Waiting for ssh daemons to start\n" )
-    for server in network.hosts:
-        waitListening( server=server, port=22, timeout=5 )
-
-    info( "\n*** Hosts are running sshd at the following addresses:\n" )
-    for host in network.hosts:
-        info( host.name, host.IP(), '\n' )
-    info( "\n*** Type 'exit' or control-D to shut down network\n" )
-    CLI( network )
-    for host in network.hosts:
-        host.cmd( 'kill %' + CMD )
-    network.stop()
-
-if __name__ == '__main__':
-    import argparse
-    os.system('sudo mn -c')
-    parser = argparse.ArgumentParser(description="Mininet SSH Daemon Setup")
-    parser.add_argument('--hosts', type=int, default=2, help="Number of hosts per switch")
-    parser.add_argument('--switches', type=int, default=2, help="Number of switches")
-    parser.add_argument('--hbw', type=int, default=25, help="Bandwidth for Host links (Mbps)")
-    parser.add_argument('--sbw', type=int, default=25, help="Bandwidth for Switch links (Mbps)")
-    parser.add_argument('--hdelay', type=str, default='5ms', help="Host Link delay")
-    parser.add_argument('--sdelay', type=str, default='5ms', help="Switch Link delay")
-    parser.add_argument('--hloss', type=float, default=0.0, help="Packet loss percentage -- Host Link")
-    parser.add_argument('--sloss', type=float, default=0.0, help="Packet loss percentage -- Switch Link")
-    parser.add_argument('--ip', type=str, default='10.123.123.1/32', help="Root IP")
-    args = parser.parse_args()
-
-    lg.setLogLevel('info')
-    tapo = ProtoTapo(n=args.hosts, sw=args.switches,h_bw=args.hbw,s_bw=args.sbw,
-                     h_delay=args.hdelay,s_delay=args.sdelay,h_loss=args.hloss,s_loss=args.sloss)
-    net = Mininet(topo=tapo, link=TCLink, waitConnected=True)
-    sshd(net, routes=['10.0.0.0/24'], switch=net['s1'])
-=======
     print("*** Creating links")
     net.addLink(h1, s1, bw=200, delay='5ms')
     net.addLink(h3, s1, bw=200, delay='5ms')
@@ -158,4 +104,3 @@ if __name__ == '__main__':
     os.system('sudo mn -c')
     os.system('sudo rm -rf /tmp/zmq*')
     customTopology()
->>>>>>> Stashed changes
