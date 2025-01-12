@@ -61,7 +61,7 @@ char *construct_filepath(const char *filename, int step)
     }
 
     char new_directory[256];
-    const char *directory = "/home/cc/zmqClient/data";
+    const char *directory = "../data";
 
     if (strstr(filename, "reduced") != NULL)
     {
@@ -88,24 +88,61 @@ char *construct_filepath(const char *filename, int step)
     return filepath;
 }
 
+void log_time_info(struct timeval *start, double *bytesReceived, int type)
+{
+    struct timeval end;
+    gettimeofday(&end, NULL);
+
+    // Check if 2 seconds have passed
+    double elapsed = (end.tv_sec - start->tv_sec) + (end.tv_usec - start->tv_usec) / 1000000.0;
+    if (elapsed >= 2.0)
+    {
+        // Determine file path based on data type (reduced - 0, full - 1)
+        const char *filePath = (type == 0) ? "../data/time_reduced.txt" : "../data/time_aug.txt";
+        FILE *file = fopen(filePath, "a");
+        if (file == NULL)
+        {
+            perror("Error opening file");
+            return;
+        }
+        char buffer[128];
+        int written = snprintf(buffer, sizeof(buffer), "%.3f, %.3f\n", elapsed, *bytesReceived);
+        if (written < 0)
+        {
+            perror("Error formatting data");
+            fclose(file);
+            return;
+        }
+        if (fwrite(buffer, 1, strlen(buffer), file) != strlen(buffer))
+        {
+            perror("Error writing to file");
+        }
+        fclose(file);
+        printf("Logged: Elapsed = %.3f, BytesReceived = %.3f to %s\n", elapsed, *bytesReceived, filePath);
+        gettimeofday(start, NULL);
+        *bytesReceived = 0.0;
+    }
+}
+
 void run_blob_detection_scripts(DataQuality data_quality, int step)
 {
     int status;
+    return;
     if (data_quality == REDUCED)
     {
         printf("Running Reduced blob detection...\n");
         char command[512];
-        snprintf(command, sizeof(command), "/home/cc/zmqClient/venv/bin/python /home/cc/zmqClient/scripts/data_to_blob_detection.py --app_name xgc --data_type reduced --path ~/zmq/data/ --output_name xgc_reduced.png --step %d > /dev/tty", step);
+        snprintf(command, sizeof(command), "../venv/bin/python ../scripts/data_to_blob_detection.py --app_name xgc --data_type reduced --path ~/zmq/data/ --output_name xgc_reduced.png --step %d > /dev/tty", step);
         status = system(command);
     }
     else
     {
         printf("Running Full blob detection...\n");
         char command[512];
-        snprintf(command, sizeof(command), "/home/cc/zmqClient/venv/bin/python /home/cc/zmqClient/scripts/combine.py --step %d > /dev/tty", step);
+        snprintf(command, sizeof(command), "../venv/bin/python ../scripts/combine.py --step %d > /dev/tty", step);
         status = system(command);
     }
-    // printf("step (%d): System status: %d, It took %.3f seconds to run the blob detection scripts\n", step, status, time_taken);
+    printf("step (%d): System status: %d, run the blob detection scripts\n", step, status);
 }
 
 void *recv_data(void *arg)
@@ -128,8 +165,8 @@ void *recv_data(void *arg)
     bool is_port_complete = false;
 
     // Timing
-    struct timeval start, end;
-    gettimeofday(&start, NULL);
+    struct timeval start;
+    double bytes_received = 0.0;
     while (!is_port_complete)
     {
         // Receive filename
@@ -140,8 +177,6 @@ void *recv_data(void *arg)
         memcpy(filename, zmq_msg_data(&msg), filename_len);
         filename[filename_len] = '\0';
         char *filepath = construct_filepath(filename, step);
-        // Logging
-        printf("Step (%d), Receiving file: %s\n", step, filename);
 
         // Add filename to appropriate array based on quality
         StepInfo *current_step = get_or_create_step(step, quality);
@@ -149,12 +184,18 @@ void *recv_data(void *arg)
         // Opening file for appending
         FILE *file = fopen(filepath, "ab");
 
+        // Logging
+        printf("Step (%d), Receiving file: %s\n", step, filename);
+        gettimeofday(&start, NULL);
+
+        // Receive file chunks
         bool is_file_complete = false;
         while (!is_file_complete)
         {
             zmq_msg_init(&msg);
             zmq_msg_recv(&msg, socket, 0);
 
+            // Check if the file has been completely sent
             if (zmq_msg_size(&msg) == 0)
             {
                 is_file_complete = true;
@@ -162,6 +203,9 @@ void *recv_data(void *arg)
             }
 
             long chunk_size = zmq_msg_size(&msg);
+            // Logging Timing each 2 seconds
+            bytes_received += chunk_size;
+            log_time_info(&start, &bytes_received, thread_index == 0 ? 0 : 1);
             char *buffer = malloc(chunk_size);
             memcpy(buffer, zmq_msg_data(&msg), chunk_size);
             fwrite(buffer, 1, chunk_size, file);
@@ -198,12 +242,7 @@ void *recv_data(void *arg)
         // Logging And ack
         if (thread_index == 0 && alert != 1)
         {
-
-            // Timing
-            gettimeofday(&end, NULL);
-            double elapsed = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
-            printf("step (%d): It took %.3f seconds to receive Reduced files\n", step, elapsed);
-
+            printf("step (%d): received Reduced files\n", step);
             // Ack message
             char ack_message[256];
             snprintf(ack_message, sizeof(ack_message), "step (%d): Received Reduced files", step);
@@ -214,11 +253,7 @@ void *recv_data(void *arg)
         }
         else if (thread_index == 1 && alert != 1)
         {
-            // Timing
-            gettimeofday(&end, NULL);
-            double elapsed = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
-            printf("step (%d): It took %.3f seconds to receive Augmentation files\n", step, elapsed);
-
+            printf("step (%d): received Augmentation files\n", step);
             // Ack message
             char ack_message[256];
             snprintf(ack_message, sizeof(ack_message), "step (%d): Received Augmentation files", step);
@@ -236,8 +271,6 @@ void *recv_data(void *arg)
         case 2:
             mark_step_complete(step, thread_index == 0 ? FULL : REDUCED);
             step++;
-            // Timing -> Start again
-            gettimeofday(&start, NULL);
             break;
         default:
             mark_step_complete(step, thread_index == 0 ? FULL : REDUCED);

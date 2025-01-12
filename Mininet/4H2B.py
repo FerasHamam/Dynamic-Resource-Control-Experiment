@@ -10,9 +10,14 @@ from mininet.net import Mininet
 from mininet.node import Node
 from mininet.link import TCLink
 from mininet.cli import CLI
+<<<<<<< Updated upstream
 from mininet.log import lg, info
 from mininet.util import waitListening
 from mininet.topo import Topo
+=======
+from mininet.log import setLogLevel
+import os
+>>>>>>> Stashed changes
 
 
 USERNAME = os.getlogin()
@@ -49,6 +54,7 @@ def connectToRootNS( network, switch, ip, routes ):
     for route in routes:
         root.cmd( 'route add -net ' + route + ' dev ' + str( intf ) )
 
+<<<<<<< Updated upstream
 # pylint: disable=too-many-arguments
 def sshd( network, routes=None, switch=None ):
     """Start a network, connect it to root ns, and run sshd on all hosts.
@@ -95,3 +101,61 @@ if __name__ == '__main__':
                      h_delay=args.hdelay,s_delay=args.sdelay,h_loss=args.hloss,s_loss=args.sloss)
     net = Mininet(topo=tapo, link=TCLink, waitConnected=True)
     sshd(net, routes=['10.0.0.0/24'], switch=net['s1'])
+=======
+    print("*** Creating links")
+    net.addLink(h1, s1, bw=200, delay='5ms')
+    net.addLink(h3, s1, bw=200, delay='5ms')
+    net.addLink(s1, s2, bw=200, delay='5ms')
+    net.addLink(s2, h2, bw=200, delay='5ms')
+    net.addLink(s2, h4, bw=200, delay='5ms')
+    #, bw=200, delay='5ms'
+
+    print("*** Starting network")
+    net.start()
+
+    print("*** Adding default switch flows")
+    s1.cmd('ovs-ofctl add-flow s1 "priority=1,actions=normal"')
+    s2.cmd('ovs-ofctl add-flow s2 "priority=1,actions=normal"')
+
+    print("*** Copying C programs to hosts")
+
+    # Copy zmqServer directory to h1 and zmqReceiver to h3
+    h1.cmd('cp -r /home/cc/zmqServer /tmp/')
+    # h3.cmd('cp -r /home/cc/interferenceSender /tmp/')
+    h2.cmd('cp -r /home/cc/zmqReceiver /tmp/')
+    # h4.cmd('cp -r /home/cc/interferenceReceiver /tmp/')
+
+
+    print("*** Setting up zmqServer and zmqReceiver")
+    # Run setup.sh for zmqServer on h1 and zmqReceiver on h3
+    h1.cmd('/tmp/zmqServer/scripts/setup.sh &')
+    # h3.cmd('/tmp/interferenceSender/scripts/setup.sh &')
+    h2.cmd('/tmp/zmqReceiver/scripts/setup.sh &')
+    # h4.cmd('/tmp/interferenceReceiver/scripts/setup.sh &')
+
+    print("*** Building zmqServer and zmqReceiver")
+    # build zmqServer and zmqReceiver
+    h1.cmd('cd /tmp/zmqServer/build & cmake .. & make &')
+    # h3.cmd('cd /tmp/interferenceSender/build & cmake .. & make &')
+    h2.cmd('cd /tmp/zmqReceiver/build & cmake .. & make &')
+    # h4.cmd('cd /tmp/interferenceReceiver/build & cmake .. & make &')
+
+    print("*** Starting zmqServer and zmqReceiver")
+    # Run zmqServer and zmqReceiver
+    h1.cmd('/tmp/zmqServer/build/sender &')
+    # h3.cmd('/tmp/interferenceSender/build/sender &')
+    h2.cmd('/tmp/zmqReceiver/build/receiver &')
+    # h4.cmd('/tmp/interferenceReceiver/build/receiver &')
+
+    print("*** Running CLI")
+    CLI(net)
+
+    print("*** Stopping network")
+    net.stop()
+
+if __name__ == '__main__':
+    setLogLevel('info')
+    os.system('sudo mn -c')
+    os.system('sudo rm -rf /tmp/zmq*')
+    customTopology()
+>>>>>>> Stashed changes

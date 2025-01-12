@@ -215,10 +215,10 @@ void *send_data(void *arg)
 int main()
 {   
     //TODO
-    remove_rules();
-    add_socket_classes();
-    adjust_socket_shaping(BASE_PORT, HIGH);
-    adjust_socket_shaping(BASE_PORT + 1, LOW);
+    //remove_rules();
+    //add_socket_classes();
+    //adjust_socket_shaping(BASE_PORT, HIGH);
+    //adjust_socket_shaping(BASE_PORT + 1, LOW);
 
     printf("Starting Sender...\n");
     context = zmq_ctx_new();
