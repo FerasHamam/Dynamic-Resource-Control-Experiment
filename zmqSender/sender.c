@@ -10,7 +10,7 @@
 #include <stdbool.h>
 #include <time.h>
 
-#define BASE_PORT 4445
+#define BASE_PORT 4444
 #define CLIENT_IP "CLIENT_IP"
 #define NUM_STEPS 1
 

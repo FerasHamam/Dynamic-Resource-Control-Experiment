@@ -11,10 +11,9 @@
 #include <errno.h>
 #include "step_manager.h"
 
-#define BASE_PORT 4445
+#define BASE_PORT 4444
 
 void *context;
-atomic_long total_bytes_received = 0;
 DataQuality shared_data_quality = FULL;
 
 // Function to create directories recursively
@@ -200,16 +199,14 @@ void *recv_data(void *arg)
                 is_file_complete = true;
                 continue;
             }
-
             long chunk_size = zmq_msg_size(&msg);
-            // Logging Timing each 2 seconds
-            bytes_received += chunk_size;
-            log_time_info(&start, &bytes_received, thread_index == 0 ? 0 : 1);
             char *buffer = malloc(chunk_size);
             memcpy(buffer, zmq_msg_data(&msg), chunk_size);
             fwrite(buffer, 1, chunk_size, file);
             free(buffer);
-            atomic_fetch_add(&total_bytes_received, chunk_size);
+            // Logging Timing each 2 seconds
+            bytes_received += chunk_size;
+            log_time_info(&start, &bytes_received, thread_index == 0 ? 0 : 1);
         }
 
         printf("Step (%d) Received file: %s\n", step, filename);
