@@ -167,6 +167,7 @@ void *recv_data(void *arg)
     // Timing
     struct timeval start;
     double bytes_received = 0.0;
+    gettimeofday(&start, NULL);
     while (!is_port_complete)
     {
         // Receive filename
@@ -186,8 +187,6 @@ void *recv_data(void *arg)
 
         // Logging
         printf("Step (%d), Receiving file: %s\n", step, filename);
-        gettimeofday(&start, NULL);
-
         // Receive file chunks
         bool is_file_complete = false;
         while (!is_file_complete)
