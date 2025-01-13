@@ -6,7 +6,7 @@ echo "Setup for Server started..."
 sudo apt-get update
 
 # Install required packages
-sudo apt-get install -y build-essential libzmq3-dev cmake pkg-config
+sudo apt-get install -y build-essential libzmq3-dev cmake pkg-config firewalld
 
 # Disable firewall in ports 5555 to 5560 in order for the Socket to communicate
 # Adjust based on the number of noise files that you are sending
