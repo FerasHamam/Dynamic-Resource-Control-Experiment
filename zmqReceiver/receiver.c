@@ -5,7 +5,6 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <stdatomic.h>
-#include <sys/time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
@@ -270,7 +269,6 @@ void *recv_data(void *arg)
             zmq_msg_init_size(&msg, strlen(ack_message) + 1);
             memcpy(zmq_msg_data(&msg), ack_message, strlen(ack_message) + 1);
             zmq_msg_send(&msg, socket, 0);
-            zmq_msg_close(&msg);
         }
         else if (thread_index == 1)
         {
@@ -281,7 +279,6 @@ void *recv_data(void *arg)
             zmq_msg_init_size(&msg, strlen(ack_message) + 1);
             memcpy(zmq_msg_data(&msg), ack_message, strlen(ack_message) + 1);
             zmq_msg_send(&msg, socket, 0);
-            zmq_msg_close(&msg);
         }
 
         // Process alert

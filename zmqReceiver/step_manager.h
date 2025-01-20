@@ -4,6 +4,7 @@
 #include "step_types.h"
 #include <pthread.h>
 #include <stdatomic.h>
+#include <sys/time.h>
 
 
 void init_filename_array(FilenameArray *arr);

@@ -5,7 +5,7 @@
 #include <stdatomic.h>
 #include "step_manager.h"
 
-#define INITIAL_CAPACITY 10
+#define INITIAL_CAPACITY 100
 
 // Global variables
 StepArray step_array = {NULL, 0, 0};
@@ -81,13 +81,17 @@ extern void run_blob_detection_scripts(DataQuality quality, int step);
 extern void *context;
 
 void *step_processor_thread(void *arg)
-{   
+{
     bool enable = true;
     while (enable)
     {
+
         if (context == NULL)
             break;
-
+        
+        // Timing
+        struct timeval start, end;
+        gettimeofday(&start, NULL);
 
         pthread_mutex_lock(&mutex);
         int current_step = atomic_load(&current_processing_step);
@@ -110,8 +114,8 @@ void *step_processor_thread(void *arg)
                 break;
             }
         }
-        
-        if(!step_info)
+
+        if (!step_info)
         {
             pthread_mutex_unlock(&mutex);
             continue;
@@ -122,6 +126,14 @@ void *step_processor_thread(void *arg)
         {
             pthread_cond_wait(&cond, &mutex);
         }
+
+        // log the current step to a file
+        gettimeofday(&end, NULL);
+        double time_taken = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
+        // store time taken in a file appending mode
+        FILE *log_file = fopen("../data/log.txt", "a");
+        fprintf(log_file, "%f\n", time_taken);
+        fclose(log_file);
 
         printf("Processing step %d (Reduced files: %d, Augmentation files: %d)\n",
                current_step,
@@ -141,13 +153,13 @@ void *step_processor_thread(void *arg)
         // Move to next step
         pthread_mutex_lock(&mutex);
         // 2 because we added -1 step in receiver.c
-        if (current_step == step_array.count - 2)
+        // Move to the next step
+        for(int i=0; i<step_array.count; i++)
         {
-            atomic_store(&current_processing_step, -1);
-        }
-        else
-        {
-            atomic_fetch_add(&current_processing_step, 1);
+            if(step_array.steps[i].step == current_step)
+            {
+                atomic_store(&current_processing_step, step_array.steps[i+1].step);
+            }
         }
         pthread_mutex_unlock(&mutex);
     }
