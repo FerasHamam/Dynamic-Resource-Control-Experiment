@@ -38,6 +38,7 @@ def calculate_bandwidth(bytes_transferred, times):
         else:
             bandwidth = 0
         bandwidths.append(bandwidth)
+    print(f"Cumulative time at index {i}: {sum(times)}s")
     return bandwidths
 
 def calculate_statistics(data, label):

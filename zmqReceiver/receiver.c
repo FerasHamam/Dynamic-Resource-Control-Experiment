@@ -164,67 +164,93 @@ void *recv_data(void *arg)
     bool is_port_complete = false;
 
     // Timing
-    struct timeval start;
+    struct timeval start, end;
     double bytes_received = 0.0;
-    gettimeofday(&start, NULL);
     while (!is_port_complete)
     {
-        // Receive filename
-        zmq_msg_init(&msg);
-        zmq_msg_recv(&msg, socket, 0);
-        size_t filename_len = zmq_msg_size(&msg);
-        char *filename = malloc(filename_len + 1);
-        memcpy(filename, zmq_msg_data(&msg), filename_len);
-        filename[filename_len] = '\0';
-        char *filepath = construct_filepath(filename, step);
-
+        // Receive filenames
+        char **filenames = NULL;
+        char **filepaths = NULL;
+        int file_count = 0;
         // Add filename to appropriate array based on quality
         StepInfo *current_step = get_or_create_step(step, quality);
-
-        // Opening file for appending
-        FILE *file = fopen(filepath, "ab");
-
-        // Logging
-        printf("Step (%d), Receiving file: %s\n", step, filename);
-        // Receive file chunks
-        bool is_file_complete = false;
-        while (!is_file_complete)
+        printf("Step (%d) Started\n", step);
+        while (true)
         {
             zmq_msg_init(&msg);
             zmq_msg_recv(&msg, socket, 0);
-
-            // Check if the file has been completely sent
-            if (zmq_msg_size(&msg) == 0)
+            size_t filename_len = zmq_msg_size(&msg);
+            if (filename_len == 0)
             {
-                is_file_complete = true;
+                break; // End of filenames
+            }
+
+            filenames = realloc(filenames, (file_count + 1) * sizeof(char *));
+            filepaths = realloc(filepaths, (file_count + 1) * sizeof(char *));
+            if (filenames == NULL || filepaths == NULL)
+            {
+                perror("Failed to allocate memory");
+                exit(EXIT_FAILURE);
+            }
+
+            filenames[file_count] = malloc(filename_len + 1);
+            memcpy(filenames[file_count], zmq_msg_data(&msg), filename_len);
+            filenames[file_count][filename_len] = '\0';
+            filepaths[file_count] = construct_filepath(filenames[file_count], step);
+            add_filename(thread_index == 0 ? &current_step->reduced_filenames : &current_step->augmentation_filenames, filenames[file_count]);
+            file_count++;
+        }
+        // Open files for writing
+        FILE *files[file_count];
+        for (int i = 0; i < file_count; i++)
+        {
+            files[i] = fopen(filepaths[i], "ab");
+            if (files[i] == NULL)
+            {
+                perror("Failed to open file");
+                exit(EXIT_FAILURE);
+            }
+        }
+
+        // Receive files chunks
+        int num_read_files = 0;
+        int file_index = 0;
+        int iter = 0;
+        while (num_read_files < file_count)
+        {
+            // Receive file chunks
+            gettimeofday(&start, NULL);
+            zmq_msg_init(&msg);
+            zmq_msg_recv(&msg, socket, 0);
+            gettimeofday(&end, NULL);
+            size_t chunk_size = zmq_msg_size(&msg);
+            if (chunk_size == 0)
+            {
+                printf("Step (%d), Received file: %s\n", step, filenames[file_index]);
+                num_read_files++;
+                iter = 0;
+                fclose(files[file_index]);
+                file_index = (file_index + 1) % file_count;
                 continue;
             }
-            long chunk_size = zmq_msg_size(&msg);
             char *buffer = malloc(chunk_size);
             memcpy(buffer, zmq_msg_data(&msg), chunk_size);
-            fwrite(buffer, 1, chunk_size, file);
+            fwrite(buffer, 1, chunk_size, files[file_index]);
             free(buffer);
             // Logging Timing each 2 seconds
             bytes_received += chunk_size;
-            log_time_info(&start, &bytes_received, thread_index == 0 ? 0 : 1);
+            // log_time_info(&start, &bytes_received, thread_index == 0 ? 0 : 1);
+            double elapsed = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
+            // Send elapsed time to log
+            zmq_msg_init_data(&msg, &elapsed, sizeof(double), NULL, NULL);
+            zmq_msg_send(&msg, socket, 0);
+            iter++;
+            if (iter % 10 == 0)
+            {
+                iter = 0;
+                file_index = (file_index + 1) % file_count;
+            }
         }
-
-        printf("Step (%d) Received file: %s\n", step, filename);
-
-        // Add filename to step
-        if (thread_index == 0)
-        {
-            add_filename(&current_step->reduced_filenames, filename);
-        }
-        else
-        {
-            add_filename(&current_step->augmentation_filenames, filename);
-        }
-
-        // Close file
-        fclose(file);
-        free(filename);
-        free(filepath);
 
         // Receive alert message
         zmq_msg_init(&msg);
@@ -232,11 +258,10 @@ void *recv_data(void *arg)
         int alert = atoi(zmq_msg_data(&msg));
 
         // if 0 that means the port is complete and no more steps,
-        // if 1 more files to come with the same step,
-        // if 2 move to the next step by incrementing step
+        // if 1 move to the next step by incrementing step
 
         // Logging And ack
-        if (thread_index == 0 && alert != 1)
+        if (thread_index == 0)
         {
             printf("step (%d): received Reduced files\n", step);
             // Ack message
@@ -247,7 +272,7 @@ void *recv_data(void *arg)
             zmq_msg_send(&msg, socket, 0);
             zmq_msg_close(&msg);
         }
-        else if (thread_index == 1 && alert != 1)
+        else if (thread_index == 1)
         {
             printf("step (%d): received Augmentation files\n", step);
             // Ack message
@@ -263,8 +288,6 @@ void *recv_data(void *arg)
         switch (alert)
         {
         case 1:
-            continue;
-        case 2:
             mark_step_complete(step, thread_index == 0 ? FULL : REDUCED);
             step++;
             break;
