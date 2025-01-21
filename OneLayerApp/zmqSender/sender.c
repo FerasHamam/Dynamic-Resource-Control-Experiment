@@ -11,7 +11,7 @@
 #include <time.h>
 
 #define BASE_PORT 4444
-#define CLIENT_IP "Receiver_IP"
+#define CLIENT_IP "RECEIVER_IP"
 #define NUM_STEPS 1
 #define BANDWIDTH_SIZE 60
 #define LINK_BANDWIDTH 200.0

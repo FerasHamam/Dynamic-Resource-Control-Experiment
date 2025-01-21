@@ -1,0 +1,11 @@
+<!-- PROJECT LOGO -->
+<br />
+<p align="center">
+  <h1 align="center">Application Layer QOS Solution Directory</h3>
+</p>
+
+# Application Layer QOS Solution Implementation
+
+## 1. Instructions for Running with zmqSender and zmqClient
+
+## 2. Noise implementations are not included in this directory. Please utilize the provided noise implementations located in other directories, or implement your own as needed.
