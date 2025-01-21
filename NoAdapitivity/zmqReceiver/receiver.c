@@ -144,7 +144,6 @@ void *recv_data(void *arg)
     // Initialize
     int step = 0;
     bool is_port_complete = false;
-    double bytes_received = 0.0;
     while (!is_port_complete)
     {
         // Timing
@@ -180,8 +179,6 @@ void *recv_data(void *arg)
             }
 
             write_data_to_file(file, data, chunk_size);
-            // Logging Timing each 2 seconds
-            bytes_received += chunk_size;
         }
 
         printf("Step (%d) Received file: %s\n", step, filename);
