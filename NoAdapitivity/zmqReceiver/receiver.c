@@ -201,7 +201,7 @@ void *recv_data(void *arg)
         // Logging And ack
         if (alert != 1)
         {
-            printf("step (%d): received Augmentation files\n", step);
+            printf("step (%d): received file\n", step);
             // Ack message
             char ack_message[256];
             snprintf(ack_message, sizeof(ack_message), "step (%d): Received Augmentation files", step);

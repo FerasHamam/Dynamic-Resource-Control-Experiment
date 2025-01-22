@@ -26,7 +26,7 @@ typedef struct
 void connect_socket(void **socket)
 {
     char bind_address[50];
-    snprintf(bind_address, sizeof(bind_address), "tcp://0.0.0.0:%d", BASE_PORT);
+    snprintf(bind_address, sizeof(bind_address), "tcp://%s:%d", CLIENT_IP, BASE_PORT);
     *socket = zmq_socket(context, ZMQ_PAIR);
     zmq_connect(*socket, bind_address);
     printf("Binding to port %d\n", BASE_PORT);
@@ -95,7 +95,7 @@ void *send_data(void *arg)
 
             // Send file data of 1mb chunks
             size_t bytes_read;
-            size_t chunk_size = 1024 * 1024;
+            size_t chunk_size = 539145420;
             char *buffer = (char *)malloc(chunk_size);
             while ((bytes_read = fread(buffer, 1, chunk_size, file)) > 0)
             {

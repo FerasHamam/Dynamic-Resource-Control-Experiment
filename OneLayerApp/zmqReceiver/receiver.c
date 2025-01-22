@@ -116,7 +116,7 @@ void log_time_info(struct timeval *start, double *bytesReceived, int type)
             perror("Error writing to file");
         }
         fclose(file);
-        printf("Logged: Elapsed = %.3f, BytesReceived = %.3f to %s\n", elapsed, *bytesReceived, filePath);
+        //printf("Logged: Elapsed = %.3f, BytesReceived = %.3f to %s\n", elapsed, *bytesReceived, filePath);
         gettimeofday(start, NULL);
         *bytesReceived = 0.0;
     }
@@ -173,7 +173,7 @@ void *recv_data(void *arg)
         int file_count = 0;
         // Add filename to appropriate array based on quality
         StepInfo *current_step = get_or_create_step(step, quality);
-        printf("Step (%d) Started\n", step);
+        //printf("Step (%d) Started\n", step);
         while (true)
         {
             zmq_msg_init(&msg);
@@ -262,7 +262,7 @@ void *recv_data(void *arg)
         // Logging And ack
         if (thread_index == 0)
         {
-            printf("step (%d): received Reduced files\n", step);
+            //printf("step (%d): received Reduced files\n", step);
             // Ack message
             char ack_message[256];
             snprintf(ack_message, sizeof(ack_message), "step (%d): Received Reduced files", step);
@@ -272,7 +272,7 @@ void *recv_data(void *arg)
         }
         else if (thread_index == 1)
         {
-            printf("step (%d): received Augmentation files\n", step);
+            //printf("step (%d): received Augmentation files\n", step);
             // Ack message
             char ack_message[256];
             snprintf(ack_message, sizeof(ack_message), "step (%d): Received Augmentation files", step);
@@ -280,7 +280,6 @@ void *recv_data(void *arg)
             memcpy(zmq_msg_data(&msg), ack_message, strlen(ack_message) + 1);
             zmq_msg_send(&msg, socket, 0);
         }
-
         // Process alert
         switch (alert)
         {
