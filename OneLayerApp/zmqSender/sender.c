@@ -11,16 +11,22 @@
 #include <time.h>
 
 #define BASE_PORT 4444
-#define CLIENT_IP "RECEIVER_IP"
+#define CLIENT_IP "RECIEVER_IP"
 #define NUM_STEPS 1
-#define BANDWIDTH_SIZE 60
-#define LINK_BANDWIDTH 200.0 * 1000 * 1000
+#define BANDWIDTH_SIZE 100
+#define LINK_BANDWIDTH 200.0 * 1000.0 * 1000.0
 
 typedef enum
 {
     LOW,
     HIGH
 } SocketPriority;
+
+typedef enum
+{
+    REDUCED,
+    AUG
+} FilesType;
 
 // Global shared resources
 pthread_mutex_t bandwidth_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -32,7 +38,9 @@ volatile double dynamic_progress_threshold = 100.0;
 volatile double max_progress_per_step = 0;
 volatile bool stop_congestion_thread = false;
 volatile int active_file_index = 0;
-
+volatile double aug_file_size = 0;
+volatile int step_aug = 0;
+volatile int step_reduced = 0;
 void *context;
 typedef struct
 {
@@ -43,55 +51,69 @@ typedef struct
 
 void *calculate_congestion(void *arg)
 {
+
     while (!stop_congestion_thread)
     {
         pthread_mutex_lock(&bandwidth_mutex);
-        if (active_file_index != 0 || aug_index < 30)
+        while (active_file_index != 0)
         {
             pthread_mutex_unlock(&bandwidth_mutex);
             usleep(100000);
             continue;
         }
-        struct timeval start, end;
         double avg_speed_reduced = 0;
         double avg_speed_aug = 0;
         int iter;
-        int max_iter = (reduced_index > aug_index) ? reduced_index : aug_index;
-        for (iter = 0; iter < max_iter; iter++)
+        for (iter = 0; iter < BANDWIDTH_SIZE; iter++)
         {
             // Check if the times are not 0 (Divide by Zero) and accumulate the values
+            if (bytes_sent[iter][0] == 0 && bytes_sent[iter][1] == 0)
+            {
+                break;
+            }
             avg_speed_reduced += time_taken[iter][0] > 0 ? ((bytes_sent[iter][0] * 8) / time_taken[iter][0]) : 0;
             avg_speed_aug += time_taken[iter][1] > 0 ? ((bytes_sent[iter][1] * 8) / time_taken[iter][1]) : 0;
-
-            // Reset the values for this iteration
-            time_taken[iter][0] = time_taken[iter][1] = 0;
-            bytes_sent[iter][0] = bytes_sent[iter][1] = 0;
+        }
+        if (iter == 0)
+        {
+            pthread_mutex_unlock(&bandwidth_mutex);
+            usleep(250000);
+            continue;
         }
         avg_speed_aug /= iter;
         avg_speed_reduced /= iter;
         double total_bandwidth = avg_speed_reduced + avg_speed_aug;
-        int congestion = (int)((1.0 - (total_bandwidth / (LINK_BANDWIDTH))) * 100);
-        if (congestion < 20)
+        double congestion = (int)((1.0 - (total_bandwidth / (LINK_BANDWIDTH))) * 100);
+        if (congestion < 10)
         {
-            dynamic_progress_threshold = 100;
+            dynamic_progress_threshold = 100.0;
         }
         else
         {
-            dynamic_progress_threshold = 100 - (congestion - 20);
-            dynamic_progress_threshold = (dynamic_progress_threshold < max_progress_per_step) ? dynamic_progress_threshold : max_progress_per_step + 1;
+            dynamic_progress_threshold = 100.0 - (congestion - 10.0);
+            if (dynamic_progress_threshold < max_progress_per_step)
+                dynamic_progress_threshold = max_progress_per_step + 2;
         }
         // Reset the values for the next acting
-        aug_index = 0;
-        reduced_index = 0;
+        int min_step = 0;
+        if (step_reduced < step_aug)
+        {
+            min_step = step_reduced;
+        }
+        else
+        {
+            min_step = step_aug;
+        }
+        //printf("speed_reduced: %.2f, speed_aug: %.2f, congestion: %f%%\n", avg_speed_reduced, avg_speed_aug, congestion);
+        //printf("Dynamic Progress Threshold: %.2f%%\n", dynamic_progress_threshold);
         pthread_mutex_unlock(&bandwidth_mutex);
-        printf("speed_reduced: %.2f, speed_aug: %.2f, congestion: %d%%\n", avg_speed_reduced, avg_speed_aug, congestion);
-        printf("Dynamic Progress Threshold: %.2f%%\n", dynamic_progress_threshold);
+        usleep(250000);
     }
     pthread_exit(NULL);
     return NULL;
 }
 
-bool open_files(char **filenames, int num_files, FILE **files, double *file_sizes)
+bool open_files(char **filenames, int num_files, FILE **files, double *file_sizes, FilesType files_type)
 {
     const char *directory = "../data/";
     for (int i = 0; i < num_files; i++)
@@ -111,7 +133,7 @@ bool open_files(char **filenames, int num_files, FILE **files, double *file_size
     return true;
 }
 
-void close_files(FILE **files, int num_files)
+void close_files(FILE **files, int num_files, FilesType files_type)
 {
     for (int i = 0; i < num_files; i++)
     {
@@ -175,7 +197,6 @@ void *send_data(void *arg)
     int thread_index = args->thread_index;
 
     void *sender = connect_socket(BASE_PORT + thread_index);
-
     int step = 0;
     while (step < NUM_STEPS)
     {
@@ -191,7 +212,7 @@ void *send_data(void *arg)
         FILE *files[num_files];
         bool read_files[num_files];
         double total_files_size[num_files];
-        open_files(filenames, num_files, files, total_files_size);
+        open_files(filenames, num_files, files, total_files_size, thread_index ? AUG : REDUCED);
 
         // Send file data
         int file_index = 0;
@@ -237,7 +258,7 @@ void *send_data(void *arg)
                 {
                     double progress = ((double)bytes_sent_per_file[file_index] / (double)total_files_size[file_index]) * 100.0f;
                     // printf("File: %s, Progress: %.2f%%\n", filenames[file_index], progress);
-                    double dynamic_progress;
+                    double dynamic_progress = 0.0;
                     pthread_mutex_lock(&bandwidth_mutex);
                     dynamic_progress = dynamic_progress_threshold;
                     pthread_mutex_unlock(&bandwidth_mutex);
@@ -250,11 +271,11 @@ void *send_data(void *arg)
                         num_sent_files++;
                     }
                     pthread_mutex_lock(&bandwidth_mutex);
-                    max_progress_per_step = (file_index == 0) ? progress : max_progress_per_step;
+                    max_progress_per_step = (progress < max_progress_per_step) ? progress : max_progress_per_step;
                     pthread_mutex_unlock(&bandwidth_mutex);
                 }
                 iter++;
-                if ((read_files[file_index]) || (iter % 10 == 0))
+                if ((read_files[file_index]) || (iter % 1 == 0))
                 {
                     file_index = (file_index + 1) % num_files;
                     pthread_mutex_lock(&bandwidth_mutex);
@@ -268,7 +289,7 @@ void *send_data(void *arg)
             {
                 // Send the close message with 0 bytes
                 send_data_chunk(sender, "", 0);
-                close_files(files, num_files);
+                close_files(files, num_files, thread_index ? AUG : REDUCED);
                 break;
             }
         }
@@ -284,8 +305,25 @@ void *send_data(void *arg)
         printf("Received ack message: %s\n", ack_message);
         // Increment step
         step++;
+        pthread_mutex_lock(&bandwidth_mutex);
+        if (thread_index == 0)
+        {
+            step_reduced = step;
+        }
+        else
+        {
+            step_aug = step;
+        }
+        pthread_mutex_unlock(&bandwidth_mutex);
     }
 
+    pthread_mutex_lock(&bandwidth_mutex);
+    for (int i = 0; i < BANDWIDTH_SIZE; i++)
+    {
+        bytes_sent[i][thread_index] = 0;
+        time_taken[i][thread_index] = 0;
+    }
+    pthread_mutex_unlock(&bandwidth_mutex);
     close_socket(sender);
     pthread_exit(NULL);
     return NULL;
@@ -293,6 +331,8 @@ void *send_data(void *arg)
 
 int main()
 {
+    // start_net_layer();
+    // sleep(5);
     printf("Starting Sender...\n");
     context = zmq_ctx_new();
     pthread_t reduced_thread, aug_thread, congestion_thread;
