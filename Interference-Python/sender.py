@@ -27,7 +27,7 @@ def send_traffic(config, log_enabled, continuous):
     start_time = time.time()
     while continuous or time.time() - start_time < config["duration"]:
         if config["type"] == "periodic":
-            message_size = int(config["bandwidth"] * 125000)  # Mbps to bytes/second
+            message_size = int(config["bandwidth"] * 125_000 / 8)  # Mbps to bit/sec
             active_time = config["period"] / 2
             inactive_time = config["period"] - active_time
 
@@ -44,7 +44,7 @@ def send_traffic(config, log_enabled, continuous):
             min_bandwidth = config["min_bandwidth"]
             max_bandwidth = config["max_bandwidth"]
             bandwidth = random.uniform(min_bandwidth, max_bandwidth)
-            message_size = int(bandwidth * 125000)  # Mbps to bytes/second
+            message_size = int(bandwidth * 125_000/8)  # Mbps to bit/sec
             burst_duration = random.uniform(1, 5)
 
             # Burst traffic
