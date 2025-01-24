@@ -162,8 +162,8 @@ void *calculate_congestion(void *arg)
             partial_aug_file_size = (dynamic_progress_threshold * aug_file_size / 100.0) - (aug_file_size - curr_aug_files_size[min_step]);
         }
         write_json("../scripts/congestion.json", curr_reduced_file_size[min_step], partial_aug_file_size, LINK_BANDWIDTH, congestion);
-        printf("speed_reduced: %.2f, speed_aug: %.2f, congestion: %f%%\n", avg_speed_reduced, avg_speed_aug, congestion);
-         printf("Dynamic Progress Threshold: %.2f%%\n", dynamic_progress_threshold);
+        //printf("speed_reduced: %.2f, speed_aug: %.2f, congestion: %f%%\n", avg_speed_reduced, avg_speed_aug, congestion);
+        //printf("Dynamic Progress Threshold: %.2f%%\n", dynamic_progress_threshold);
         pthread_mutex_unlock(&bandwidth_mutex);
         usleep(250000);
     }
