@@ -9,13 +9,17 @@
 ## 1. Download the following
 Go to this [link](https://drive.google.com/drive/folders/1EkHXA-k_TWk6JEP-0-5hSmtBPsAUsPXu?usp=share_link) and download full_data_xgc.bin.
 
-From the sender side run the following:
-```sh
-mkdir /path/to/zmqSender/data/
-```
-from your end run the following
+
+From your end run the following
 ```sh
 scp /path/to/file/full_data_xgc.bin server-ip:/path/to/zmqSender/data/
+```
+Run the following
+```sh
+cd /path/to/zmqSender/data/
+```
+```sh
+./split.sh
 ```
 
 ## 2. Give execute permissions to all scripts
