@@ -179,21 +179,22 @@ void calculate_congestion(void *arg)
 
         // Calculate congestion
         double throughput = predicted_rate * 8.0 / 1e6; // Convert to Mbps
-        printf("Predicted rate: %.2f Mbps\n", throughput);
         double congestion = (1.0 - (throughput / (LINK_BANDWIDTH))) * 100;
         int dynamic_progress_threshold = 100;
-        if (congestion > 20)
+        if (congestion > 20.0)
         {
             dynamic_progress_threshold = 100 - (congestion - 20);
         }
 
         pthread_mutex_lock(&bandwidth_mutex);
-        for (int i = step_aug + 1; i < step_aug + 5; i++)
+        for (int i = step_aug; i < step_aug + 5; i++)
         {
             if (i < NUM_STEPS)
             {
                 aug_size_prediciton_based_on_congestion[i] = dynamic_progress_threshold;
+                continue;
             }
+            break;
         }
         pthread_mutex_unlock(&bandwidth_mutex);
     }
@@ -291,10 +292,6 @@ void *send_data(void *arg)
     int step = 0;
     while (step < NUM_STEPS)
     {
-
-        pthread_mutex_lock(&bandwidth_mutex);
-        double dynamic_progress = (thread_index == 1) ? aug_size_prediciton_based_on_congestion[step] : 100;
-        pthread_mutex_unlock(&bandwidth_mutex);
         // Send all filenames at in consecutive order
         for (int j = 0; j < num_files; j++)
         {
@@ -319,9 +316,16 @@ void *send_data(void *arg)
             bytes_sent_per_file[i] = 0;
             read_files[i] = false;
         }
+        double dynamic_progress = 100;
         int iter = 0;
         while (num_sent_files < num_files)
         {
+            if (thread_index == 1)
+            {
+                pthread_mutex_lock(&bandwidth_mutex);
+                dynamic_progress = aug_size_prediciton_based_on_congestion[step];
+                pthread_mutex_unlock(&bandwidth_mutex);
+            }
             char *buffer = (char *)malloc(chunk_size);
             size_t bytes_read = fread(buffer, 1, chunk_size, files[file_index]);
             bytes_sent_per_file[file_index] += bytes_read;
@@ -342,6 +346,17 @@ void *send_data(void *arg)
                     bytes_sent[monitor_index % MONITOR_SIZE] = bytes_read;
                     monitor_index++;
                     pthread_mutex_unlock(&bandwidth_mutex);
+                    // Write the log into a file
+                    FILE *log_file = fopen("log.txt", "a");
+                    if (log_file != NULL)
+                    {
+                        fprintf(log_file, "%f\n", log_message);
+                        fclose(log_file);
+                    }
+                    else
+                    {
+                        fprintf(stderr, "Failed to open log file\n");
+                    }
                 }
 
                 // Check if the file has been completely sent based on progress
