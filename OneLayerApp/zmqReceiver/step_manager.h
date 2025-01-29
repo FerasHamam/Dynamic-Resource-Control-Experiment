@@ -11,6 +11,7 @@ void init_filename_array(FilenameArray *arr);
 void add_filename(FilenameArray *arr, const char *filename);
 void init_step_array();
 StepInfo* get_or_create_step(int step, DataQuality quality);
+void mark_step_complete(int step, bool is_augmentation);
 void *step_processor_thread(void *arg);
 void cleanup_step_array();
 

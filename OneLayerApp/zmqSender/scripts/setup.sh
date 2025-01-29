@@ -6,7 +6,7 @@ echo "Setup for Server started..."
 sudo apt-get update
 
 # Install required packages
-sudo apt-get install -y build-essential libzmq3-dev cmake pkg-config firewalld
+sudo apt-get install -y build-essential libzmq3-dev cmake pkg-config firewalld libfftw3-dev
 
 # Disable firewall in ports 4444 to 4447 in order for the Socket to communicate
 for port in {4444..4448}; do

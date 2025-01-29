@@ -244,7 +244,7 @@ void *recv_data(void *arg)
             zmq_msg_init_data(&msg, &elapsed, sizeof(double), NULL, NULL);
             zmq_msg_send(&msg, socket, 0);
             iter++;
-            if (iter % 10 == 0)
+            if (iter % 1 == 0)
             {
                 iter = 0;
                 file_index = (file_index + 1) % file_count;
