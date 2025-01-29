@@ -15,7 +15,7 @@
 #define BASE_PORT 4444
 #define SHARED_IP "IP"
 #define DETICATED_IP "IP"
-#define NUM_STEPS 30
+#define NUM_STEPS 20
 #define MONITOR_SIZE 100000
 #define LINK_BANDWIDTH 200.0
 #define CHUNK_SIZE 1024 * 1024
@@ -116,7 +116,7 @@ void calculate_congestion(void *arg)
         if (step_aug <= last_processed_step || step_aug % 3 != 0)
         {
             pthread_mutex_unlock(&bandwidth_mutex);
-            sleep(5);
+            sleep(10);
             continue;
         }
 
@@ -346,17 +346,6 @@ void *send_data(void *arg)
                     bytes_sent[monitor_index % MONITOR_SIZE] = bytes_read;
                     monitor_index++;
                     pthread_mutex_unlock(&bandwidth_mutex);
-                    // Write the log into a file
-                    FILE *log_file = fopen("log.txt", "a");
-                    if (log_file != NULL)
-                    {
-                        fprintf(log_file, "%f\n", log_message);
-                        fclose(log_file);
-                    }
-                    else
-                    {
-                        fprintf(stderr, "Failed to open log file\n");
-                    }
                 }
 
                 // Check if the file has been completely sent based on progress
