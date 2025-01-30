@@ -41,146 +41,49 @@ typedef struct
 
 // Global shared resources
 pthread_mutex_t bandwidth_mutex = PTHREAD_MUTEX_INITIALIZER;
-double time_taken[MONITOR_SIZE] = {0};
-size_t bytes_sent[MONITOR_SIZE] = {0};
 int aug_size_prediciton_based_on_congestion[NUM_STEPS];
-int monitor_index = 0;
 int step_aug = 0;
 volatile bool stop_congestion_thread = false;
 void *context;
 
-// Apply FFT to detect periodic patterns
-void apply_fft(double *input, int n, double *output)
-{
-    fftw_complex *in, *out;
-    fftw_plan plan;
-
-    // Allocate memory for FFT input and output
-    in = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * n);
-    out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * n);
-
-    // Prepare input for FFT (real values only)
-    for (int i = 0; i < n; i++)
-    {
-        in[i][0] = input[i]; // Real part
-        in[i][1] = 0.0;      // Imaginary part
-    }
-
-    // Create FFT plan
-    plan = fftw_plan_dft_1d(n, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
-
-    // Execute FFT
-    fftw_execute(plan);
-
-    // Calculate magnitude of frequencies
-    for (int i = 0; i < n; i++)
-    {
-        output[i] = sqrt(out[i][0] * out[i][0] + out[i][1] * out[i][1]);
-    }
-
-    // Free memory
-    fftw_destroy_plan(plan);
-    fftw_free(in);
-    fftw_free(out);
-}
-
-// Helper function to calculate the threshold dynamically
-double calculate_threshold(double *frequencies, int size)
-{
-    // Calculate mean and standard deviation of frequencies
-    double sum = 0.0, sum_sq = 0.0;
-    int valid_count = 0;
-    for (int i = 1; i < size / 2; i++)
-    {
-        sum += frequencies[i];
-        sum_sq += frequencies[i] * frequencies[i];
-        valid_count++;
-    }
-    double mean = sum / valid_count;
-    double variance = (sum_sq / valid_count) - (mean * mean);
-    double stddev = sqrt(variance);
-
-    // Calculate threshold (adjust factors as needed)
-    return mean + 1.5 * stddev;
-}
-
 void calculate_congestion(void *arg)
 {
-    double rate[MONITOR_SIZE] = {0};        // Transfer rate at each step
-    double frequencies[MONITOR_SIZE] = {0}; // Frequency components
     int last_processed_step = 0;
     while (!stop_congestion_thread)
     {
-        int copy_of_monitor_index = 0;
-        pthread_mutex_lock(&bandwidth_mutex);
-        if (step_aug <= last_processed_step || step_aug % 3 != 0)
+        if (step_aug <= last_processed_step || (step_aug % 3 != 0))
         {
-            pthread_mutex_unlock(&bandwidth_mutex);
-            sleep(10);
+            sleep(5);
             continue;
         }
 
-        last_processed_step = step_aug;
-
-        int sum_rate = 0;
-        for (int i = 0; i < monitor_index; i++)
+        FILE *prediciton_file = fopen("prediction.txt", "r");
+        if (!prediciton_file)
         {
-            if (time_taken[i] == 0)
+            char command[1024];
+            snprintf(command, sizeof(command), "%s %s --prediction %d", "python3", "../scripts/fft.py", step_aug);
+            int ret = system(command); // Execute Python script
+            if (ret != 0)
             {
-                continue;
+                fprintf(stderr, "Error executing command: %s\n", command);
+                break;
             }
-            rate[i] = (time_taken[i] > 0.0) ? (double)bytes_sent[i] / time_taken[i] : 0;
-            time_taken[i] = bytes_sent[i] = 0;
-        }
-        copy_of_monitor_index = monitor_index;
-        monitor_index = 0;
-        pthread_mutex_unlock(&bandwidth_mutex);
-
-        // Apply FFT to detect patterns
-        apply_fft(rate, copy_of_monitor_index, frequencies);
-
-        // Find indices of dominant frequencies
-        int dominant_indices[MONITOR_SIZE];
-        int num_dominant_indices = 0;
-        double threshold = calculate_threshold(frequencies, copy_of_monitor_index);
-        for (int i = 1; i < copy_of_monitor_index / 2; i++)
-        {
-            if (frequencies[i] > threshold)
+            while (!prediciton_file)
             {
-                dominant_indices[num_dominant_indices++] = i;
+                sleep(2);
+                prediciton_file = fopen("prediction.txt", "r");
             }
         }
 
-        // Calculate average rate during periods corresponding to dominant frequencies
-        double predicted_rate = 0.0;
-        if (num_dominant_indices > 0)
-        {
-            for (int i = 0; i < num_dominant_indices; i++)
-            {
-                // Estimate period (inverse of frequency, adjust as needed)
-                double period = copy_of_monitor_index / (double)dominant_indices[i];
-                // Calculate average rate within the estimated period
-                int start_index = fmax(0, dominant_indices[i] - (int)(period / 2));
-                int end_index = fmin(dominant_indices[i] + (int)(period / 2), copy_of_monitor_index - 1);
-                double period_rate_sum = 0.0;
-                int period_count = 0;
-                for (int j = start_index; j <= end_index; ++j)
-                {
-                    period_rate_sum += rate[j];
-                    period_count++;
-                }
-                if (period_count > 0)
-                {
-                    predicted_rate += period_rate_sum / period_count;
-                }
-            }
-            predicted_rate /= num_dominant_indices; // Average over dominant frequencies
-        }
+        double congestion;
+        // double throughput;
+        fscanf(prediciton_file, "%lf", &congestion);
+        // fscanf(prediciton_file, "%lf", &throughput);
+        fclose(prediciton_file);
+        remove("prediction.txt");
 
-        // Calculate congestion
-        double throughput = predicted_rate * 8.0 / 1e6; // Convert to Mbps
-        double congestion = (1.0 - (throughput / (LINK_BANDWIDTH))) * 100;
         int dynamic_progress_threshold = 100;
+        printf("Congestion: %.2f%%\n", congestion);
         if (congestion > 20.0)
         {
             dynamic_progress_threshold = 100 - (congestion - 20);
@@ -196,8 +99,10 @@ void calculate_congestion(void *arg)
             }
             break;
         }
+        last_processed_step = step_aug + 1;
         pthread_mutex_unlock(&bandwidth_mutex);
     }
+    printf("Exiting congestion thread\n");
     pthread_exit(NULL);
 }
 
@@ -280,6 +185,30 @@ void recv_double_data_chunk(void *socket, double *double_data)
     zmq_msg_close(&msg);
 }
 
+void store_bandwidth_and_time(double time_taken, double bytes)
+{
+    pid_t pid = fork();
+
+    if (pid == -1)
+    {
+        perror("fork failed");
+        return;
+    }
+
+    if (pid == 0)
+    {
+        FILE *log_file = fopen("log.txt", "a");
+        if (log_file == NULL)
+        {
+            perror("fopen failed");
+            exit(1); // Exit child process if file cannot be opened
+        }
+        fprintf(log_file, "%f:%f\n", time_taken, bytes);
+        fclose(log_file);
+        exit(0); // Child process exits after writing
+    }
+}
+
 void *send_data(void *arg)
 {
     // Read args
@@ -341,11 +270,7 @@ void *send_data(void *arg)
                 // calculate bandwidth based on time taken in Mbps
                 if (thread_index == 1)
                 {
-                    pthread_mutex_lock(&bandwidth_mutex);
-                    time_taken[monitor_index % MONITOR_SIZE] = log_message;
-                    bytes_sent[monitor_index % MONITOR_SIZE] = bytes_read;
-                    monitor_index++;
-                    pthread_mutex_unlock(&bandwidth_mutex);
+                    store_bandwidth_and_time(log_message, bytes_read);
                 }
 
                 // Check if the file has been completely sent based on progress

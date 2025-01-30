@@ -143,6 +143,31 @@ void run_blob_detection_scripts(DataQuality data_quality, int step)
     printf("step (%d): System status: %d, run the blob detection scripts\n", step, status);
 }
 
+// Create a function to write a file using fork
+void write_file(const char *filename, const char *data, size_t size)
+{
+    pid_t pid = fork();
+
+    if (pid == -1)
+    {
+        perror("fork failed");
+        return;
+    }
+
+    if (pid == 0)
+    {
+        FILE *file = fopen(filename, "ab");
+        if (file == NULL)
+        {
+            perror("fopen failed");
+            exit(1); // Exit child process if file cannot be opened
+        }
+        fwrite(data, 1, size, file);
+        fclose(file);
+        exit(0); // Child process exits after writing
+    }
+}
+
 void *recv_data(void *arg)
 {
     int thread_index = *(int *)arg;
@@ -218,8 +243,8 @@ void *recv_data(void *arg)
         while (num_read_files < file_count)
         {
             // Receive file chunks
-            gettimeofday(&start, NULL);
             zmq_msg_init(&msg);
+            gettimeofday(&start, NULL);
             zmq_msg_recv(&msg, socket, 0);
             gettimeofday(&end, NULL);
             size_t chunk_size = zmq_msg_size(&msg);
@@ -234,11 +259,10 @@ void *recv_data(void *arg)
             }
             char *buffer = malloc(chunk_size);
             memcpy(buffer, zmq_msg_data(&msg), chunk_size);
-            fwrite(buffer, 1, chunk_size, files[file_index]);
+            write_file(filepaths[file_index], buffer, chunk_size);
             free(buffer);
-            // Logging Timing each 2 seconds
+
             bytes_received += chunk_size;
-            // log_time_info(&start, &bytes_received, thread_index == 0 ? 0 : 1);
             double elapsed = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
             // Send elapsed time to log
             zmq_msg_init_data(&msg, &elapsed, sizeof(double), NULL, NULL);

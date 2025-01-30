@@ -9,7 +9,6 @@ apply_bandwidth_limit() {
 
     # Remove any previous configurations
     sudo tc qdisc del dev "$interface" root 2>/dev/null
-    sudo tc qdisc del dev "$interface" ingress 2>/dev/null
 
     if [[ "$direction" == "egress" ]]; then
         # Egress traffic limiting
@@ -18,6 +17,8 @@ apply_bandwidth_limit() {
         sudo tc class add dev "$interface" parent 1: classid "$classid" htb rate "$bandwidth" ceil "$bandwidth" || return 1
         sudo tc filter add dev "$interface" protocol ip parent 1:0 u32 match ip dst 0.0.0.0/0 flowid "$classid" || return 1
     elif [[ "$direction" == "ingress" ]]; then
+        sudo tc qdisc del dev "$interface" ingress 2>/dev/null
+        sudo tc qdisc del dev "$ifb_device" root 2>/dev/null
         # Ingress traffic limiting
         sudo tc qdisc del dev "$ifb_device" root 2>/dev/null
 
