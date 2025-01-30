@@ -30,6 +30,9 @@ First, update your package lists and install the necessary dependencies:
 
 ```sh
 sudo ./setup.sh
+cd scripts
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
 ## 4. Build the sender
