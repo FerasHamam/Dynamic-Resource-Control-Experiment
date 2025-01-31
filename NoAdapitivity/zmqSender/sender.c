@@ -10,10 +10,10 @@
 #include <stdbool.h>
 #include <time.h>
 
-#define BASE_PORT 4444
+#define BASE_PORT 5555
 #define SHARED_IP "IP"
 #define DETICATED_IP "IP"
-#define NUM_STEPS 1
+#define NUM_STEPS 2
 #define DIRECTORY "../data/"
 #define CHUNK_SIZE 1024 * 1024
 
@@ -43,7 +43,7 @@ void connect_socket(void **socket, int thread_index)
         setsockopt(socket_fd, SOL_SOCKET, SO_BINDTODEVICE, "enp7s0", strlen("enp7s0"));
     }
     zmq_connect(*socket, bind_address);
-    printf("Binding to port %d\n", BASE_PORT + thread_index);
+    printf("Connected to port %d\n", BASE_PORT + thread_index);
 }
 
 void recv_data_chunk(void *socket, char **data, size_t *size)
@@ -71,7 +71,6 @@ int open_file(FILE **file, const char *filename)
     char filepath[256];
     snprintf(filepath, sizeof(filepath), "%s%s", DIRECTORY, filename);
     *file = fopen(filepath, "rb");
-    printf("Opening file %s\n", filepath);
     if (*file == NULL)
     {
         perror("Error opening file");
@@ -94,7 +93,6 @@ void *send_data(void *arg)
     while (step < NUM_STEPS)
     {
         // Send file
-
         for (int i = 0; i < num_files; i++)
         {
             // Send file name
