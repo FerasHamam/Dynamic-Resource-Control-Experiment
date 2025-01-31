@@ -174,7 +174,7 @@ int main()
     ThreadArgs args2;
     char *filenames2[] = {"large_portion.bin"};
     args2.filenames = filenames2;
-    args2.num_files = 3;
+    args2.num_files = 1;
     args2.thread_index = 1;
 
     // Create a thread for sending part2 of full data
