@@ -11,7 +11,7 @@
 #include <errno.h>
 #include <pthread.h>
 
-#define BASE_PORT 4444
+#define BASE_PORT 5555
 #define DIRECTORY "../data/"
 
 void *context;
@@ -80,13 +80,13 @@ void run_blob_detection_scripts(int step)
     printf("step (%d): System status: %d, run the blob detection scripts\n", step, status);
 }
 
-void connect_socket(void **socket)
+void connect_socket(void **socket, int thread_index)
 {
     char bind_address[50];
-    snprintf(bind_address, sizeof(bind_address), "tcp://0.0.0.0:%d", BASE_PORT);
+    snprintf(bind_address, sizeof(bind_address), "tcp://0.0.0.0:%d", BASE_PORT + thread_index);
     *socket = zmq_socket(context, ZMQ_PAIR);
     zmq_bind(*socket, bind_address);
-    printf("Binding to port %d\n", BASE_PORT);
+    printf("Binding to port %d\n", BASE_PORT + thread_index);
 }
 
 void recv_data_chunk(void *socket, char **data, size_t *size)
@@ -109,11 +109,11 @@ void send_data_chunk(void *socket, char *message, size_t size)
     zmq_msg_close(&msg);
 }
 
-void log_time_taken(struct timeval start, struct timeval end)
+void log_time_taken(struct timeval start, struct timeval end, int thread_index)
 {
     double time_taken = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1e6;
     char log_filepath[256];
-    snprintf(log_filepath, sizeof(log_filepath), "%s/log.txt", DIRECTORY);
+    snprintf(log_filepath, sizeof(log_filepath), "%s/log%d.txt", DIRECTORY, thread_index);
     FILE *file = fopen(log_filepath, "a");
     if (file != NULL)
     {
@@ -139,82 +139,72 @@ void *recv_data(void *arg)
     int thread_index = *(int *)arg;
     free(arg);
     void *receiver;
-    connect_socket(&receiver);
+    connect_socket(&receiver, thread_index);
 
-    // Initialize
     int step = 0;
     bool is_port_complete = false;
     while (!is_port_complete)
     {
-        // Timing
         struct timeval start, end;
         gettimeofday(&start, NULL);
 
-        // Receive filename & construct filepath
-        size_t filename_len;
+        // Receive filename
         char *filename;
+        size_t filename_len;
         recv_data_chunk(receiver, &filename, &filename_len);
-        filename[filename_len] = '\0'; // Null-terminate the string
-
-        char *filepath = construct_filepath(filename, step);
-        // Opening file for appending
-        FILE *file = fopen(filepath, "ab");
-
-        // Logging
-        printf("Step (%d), Receiving file: %s\n", step, filename);
-
-        // Receive file chunks
-        bool is_file_complete = false;
-        while (!is_file_complete)
+        if (filename_len > 0)
         {
-            size_t chunk_size;
-            char *data;
-            recv_data_chunk(receiver, &data, &chunk_size);
+            filename[filename_len - 1] = '\0';
+            printf("Received filename: %s\n", filename);
+            char *filepath = construct_filepath(filename, step);
 
-            // Check if the file has been completely sent
-            if (chunk_size == 0)
+            if (filepath)
             {
-                is_file_complete = true;
-                continue;
-            }
+                FILE *file = fopen(filepath, "ab");
+                if (file)
+                {
+                    // Receive file chunks
+                    bool is_file_complete = false;
+                    while (!is_file_complete)
+                    {
+                        char *data;
+                        size_t chunk_size;
+                        recv_data_chunk(receiver, &data, &chunk_size);
 
-            write_data_to_file(file, data, chunk_size);
+                        if (chunk_size == 0)
+                        {
+                            is_file_complete = true;
+                            free(data);
+                        }
+                        else
+                        {
+                            write_data_to_file(file, data, chunk_size);
+                            free(data);
+                        }
+                    }
+                    fclose(file);
+                }
+                free(filepath);
+            }
+            free(filename);
         }
 
-        printf("Step (%d) Received file: %s\n", step, filename);
-
-        // Close file
-        fclose(file);
-        free(filename);
-        free(filepath);
-
-        // Receive alert message
+        // Process alert
         char *alertMsg;
         size_t alert_size;
         recv_data_chunk(receiver, &alertMsg, &alert_size);
         int alert = atoi(alertMsg);
+        free(alertMsg);
 
-        // if 0 that means the port is complete and no more steps,
-        // if 1 more files to come with the same step,
-        // if 2 move to the next step by incrementing step
-
-        // Logging And ack
         if (alert != 1)
         {
-            printf("step (%d): received Augmentation files\n", step);
-            // Ack message
             char ack_message[256];
-            snprintf(ack_message, sizeof(ack_message), "step (%d): Received Augmentation files", step);
+            snprintf(ack_message, sizeof(ack_message), "step (%d): Received files", step);
             send_data_chunk(receiver, ack_message, strlen(ack_message) + 1);
-
-            // Timing
             gettimeofday(&end, NULL);
-            log_time_taken(start, end);
-
-            run_blob_detection_scripts(step);
+            log_time_taken(start, end, thread_index);
         }
 
-        // Process alert
         switch (alert)
         {
         case 1:
@@ -224,11 +214,9 @@ void *recv_data(void *arg)
             break;
         default:
             is_port_complete = true;
-            break;
         }
     }
 
-    // Cleanup
     zmq_close(receiver);
     pthread_exit(NULL);
     return NULL;
@@ -238,11 +226,18 @@ int main()
 {
     printf("Starting Receiver...\n");
     context = zmq_ctx_new();
-    pthread_t full_data_thread;
-    int *thread_index = malloc(sizeof(int));
-    *thread_index = 0;
-    pthread_create(&full_data_thread, NULL, recv_data, thread_index);
-    pthread_join(full_data_thread, NULL);
+    pthread_t partial_data1, partial_data2;
+    int *thread_index1 = malloc(sizeof(int));
+    *thread_index1 = 0;
+    pthread_create(&partial_data1, NULL, recv_data, thread_index1);
+
+    int *thread_index2 = malloc(sizeof(int));
+    *thread_index2 = 1;
+    pthread_create(&partial_data2, NULL, recv_data, thread_index2);
+
+    pthread_join(partial_data1, NULL);
+    pthread_join(partial_data2, NULL);
+
     printf("All threads completed.\n");
     zmq_ctx_destroy(&context);
     return 0;
