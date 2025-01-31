@@ -28,6 +28,17 @@ apply_bandwidth_limit() {
             return 1
         }
 
+        # Dynamically create ifb device name based on the selected interface
+        ifb_device="${selected_interface}_ifb"
+
+        # Check if the ifb device exists, if not, create and bring it up
+        if ! ip link show "$ifb_device" &>/dev/null; then
+            echo "Creating $ifb_device for ingress shaping"
+            sudo ip link add name "$ifb_device" type ifb
+        fi
+
+        echo "Using $ifb_device for ingress shaping"
+
         # Bring up the selected ifb device if it's not already up
         sudo ip link set "$ifb_device" up || {
             echo "Failed to bring up $ifb_device"
@@ -83,17 +94,6 @@ select iface_info in "${interfaces[@]}"; do
     if [[ -n "$iface_info" ]]; then
         selected_interface=$(echo "$iface_info" | awk -F'-' '{print $1}')
         echo "You selected: $iface_info"
-
-        # Dynamically create ifb device name based on the selected interface
-        ifb_device="${selected_interface}_ifb"
-
-        # Check if the ifb device exists, if not, create and bring it up
-        if ! ip link show "$ifb_device" &>/dev/null; then
-            echo "Creating $ifb_device for ingress shaping"
-            sudo ip link add name "$ifb_device" type ifb
-        fi
-
-        echo "Using $ifb_device for ingress shaping"
 
         # Apply bandwidth limit to the selected interface and its corresponding ifb device
         apply_bandwidth_limit "$selected_interface" "$bandwidth" "$direction" "$ifb_device"
