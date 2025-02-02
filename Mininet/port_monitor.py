@@ -1,111 +1,145 @@
 import os
+from datetime import datetime
+import numpy as np
 from ryu.base import app_manager
 from ryu.controller import ofp_event
 from ryu.controller.handler import MAIN_DISPATCHER, CONFIG_DISPATCHER
 from ryu.controller.handler import set_ev_cls
 from ryu.lib import hub
 from ryu.ofproto import ofproto_v1_3
-from ryu.app.simple_switch_13 import SimpleSwitch13  # Base class from Ryu
+from ryu.app.simple_switch_13 import SimpleSwitch13
 
 SLEEP_SEC = 4
-BANDWIDTH_LIMIT = 400000000  # 200 Mbps in bits per second
+MAX_HISTORY = 50  # Maximum number of historical data points to keep
+
+# Fix syntax in PORT_EXCLUDED
+PORT_AFFECTED = {'s1': ['s1-eth1']}
+PORT_EXCLUDED = {'s1': ['s1-eth3', 's1-eth4']}
+
+### For example, 100 Mbps:
+SHARED_LINK_BW = 200  # in Mbps
+
+### Number of consecutive deltas used for naive prediction
+NUM_DELTAS = 5
 
 class SimpleSwitchWithStats(SimpleSwitch13):
     def __init__(self, *args, **kwargs):
         super(SimpleSwitchWithStats, self).__init__(*args, **kwargs)
-        self.datapaths = {}  # Store connected switches
-        self.port_names = {}  # Maps {switch_id: {port_no: port_name}}
-        self.monitor_thread = hub.spawn(self._monitor)  # Start background thread
+        self.datapaths = {}     # Store connected switches
+        self.port_names = {}    # {dpid: {port_no: port_name}}
+
+        # Historical data of deltas (not cumulative)
+        self.stats_history = {}
+
+        # Track the last cumulative reading to compute per-interval deltas
+        self.last_cumulative = {}
+
+        self.monitor_thread = hub.spawn(self._monitor)
 
     @set_ev_cls(ofp_event.EventOFPStateChange, [MAIN_DISPATCHER, CONFIG_DISPATCHER])
     def _state_change_handler(self, ev):
-        """Handles switch connection and disconnection."""
         datapath = ev.datapath
         if ev.state == MAIN_DISPATCHER:
             self.datapaths[datapath.id] = datapath
-            self.logger.info(f"Switch {datapath.id} connected. Requesting port descriptions and setting QoS.")
-            self._request_port_description(datapath)  # Request port descriptions
-            self.setup_qos(datapath.id)  # Apply QoS to all switch ports
+            self.logger.info(f"Switch {datapath.id} connected. Requesting port descriptions.")
+            self._request_port_description(datapath)  # get port names
         elif ev.state == CONFIG_DISPATCHER:
             if datapath.id in self.datapaths:
                 del self.datapaths[datapath.id]
 
     def _monitor(self):
-        """Periodically requests port statistics every SLEEP_SEC seconds."""
         while True:
             for datapath in self.datapaths.values():
                 self._request_port_stats(datapath)
-            hub.sleep(SLEEP_SEC)  # Wait before sending the next request
+            hub.sleep(SLEEP_SEC)
 
     def _request_port_stats(self, datapath):
-        """Sends a port stats request to the switch."""
         parser = datapath.ofproto_parser
         req = parser.OFPPortStatsRequest(datapath, 0, ofproto_v1_3.OFPP_ANY)
         datapath.send_msg(req)
 
     def _request_port_description(self, datapath):
-        """Sends a request to get port descriptions (names)."""
         parser = datapath.ofproto_parser
         req = parser.OFPPortDescStatsRequest(datapath, 0)
         datapath.send_msg(req)
 
+    @set_ev_cls(ofp_event.EventOFPPortDescStatsReply, MAIN_DISPATCHER)
+    def _port_desc_reply_handler(self, ev):
+        datapath = ev.msg.datapath
+        dpid = datapath.id
+
+        if dpid not in self.port_names:
+            self.port_names[dpid] = {}
+
+        for port in ev.msg.body:
+            self.port_names[dpid][port.port_no] = port.name.decode('utf-8')
+
+        self.logger.info("Port names for Switch %s: %s", dpid, self.port_names[dpid])
+
     @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
     def _port_stats_reply_handler(self, ev):
-        """Handles port statistics reply from switch."""
         datapath = ev.msg.datapath
         body = ev.msg.body
         switch_id = datapath.id
+        current_timestamp = datetime.now()
 
-        self.logger.info("\n--- Port Stats for Switch %s ---", switch_id)
+        self.logger.info("\n--- Port Stats for Switch %s (DELTA) ---", switch_id)
+
         for stat in body:
             port_no = stat.port_no
+            key = (switch_id, port_no)
+
+            # Current cumulative counters
+            cum_rx_pkts = stat.rx_packets
+            cum_tx_pkts = stat.tx_packets
+            cum_rx_bytes = stat.rx_bytes
+            cum_tx_bytes = stat.tx_bytes
+
+            # Get port name
             port_name = self.port_names.get(switch_id, {}).get(port_no, f"Port-{port_no}")
 
+            # Check if we have previous cumulative data
+            if key in self.last_cumulative:
+                prev_cum = self.last_cumulative[key]
+                delta_rx_pkts  = cum_rx_pkts  - prev_cum["rx_pkts"]
+                delta_tx_pkts  = cum_tx_pkts  - prev_cum["tx_pkts"]
+                delta_rx_bytes = cum_rx_bytes - prev_cum["rx_bytes"]
+                delta_tx_bytes = cum_tx_bytes - prev_cum["tx_bytes"]
+            else:
+                delta_rx_pkts  = 0
+                delta_tx_pkts  = 0
+                delta_rx_bytes = 0
+                delta_tx_bytes = 0
+
             self.logger.info(
-                "Port: %-8s | RX Packets: %-10d | TX Packets: %-10d | RX Bytes: %-10d | TX Bytes: %-10d",
-                port_name, stat.rx_packets, stat.tx_packets, stat.rx_bytes, stat.tx_bytes
+                "Port: %-10s | Δ RX Packets: %-10d | Δ TX Packets: %-10d | Δ RX Bytes: %-10d | Δ TX Bytes: %-10d",
+                port_name, delta_rx_pkts, delta_tx_pkts, delta_rx_bytes, delta_tx_bytes
             )
 
-    @set_ev_cls(ofp_event.EventOFPPortDescStatsReply, MAIN_DISPATCHER)
-    def _port_desc_reply_handler(self, ev):
-        """Handles port description reply and stores port names."""
-        datapath = ev.msg.datapath
-        switch_id = datapath.id
+            # Update last_cumulative to the current reading
+            self.last_cumulative[key] = {
+                "rx_pkts": cum_rx_pkts,
+                "tx_pkts": cum_tx_pkts,
+                "rx_bytes": cum_rx_bytes,
+                "tx_bytes": cum_tx_bytes
+            }
 
-        if switch_id not in self.port_names:
-            self.port_names[switch_id] = {}
+            # Store the delta in stats_history
+            if key not in self.stats_history:
+                self.stats_history[key] = []
 
-        for port in ev.msg.body:
-            self.port_names[switch_id][port.port_no] = port.name.decode('utf-8')
+            self.stats_history[key].append({
+                "timestamp": current_timestamp,
+                "rx_pkts": delta_rx_pkts,
+                "tx_pkts": delta_tx_pkts,
+                "rx_bytes": delta_rx_bytes,
+                "tx_bytes": delta_tx_bytes
+            })
 
-        self.logger.info("Port names for Switch %s: %s", switch_id, self.port_names[switch_id])
+            if len(self.stats_history[key]) > MAX_HISTORY:
+                self.stats_history[key].pop(0)
 
-    def setup_qos(self, switch_id):
-        """
-        Sets up QoS for all ports on the switch, limiting bandwidth to 200 Mbps.
-        """
-        self.logger.info(f"Applying QoS on switch {switch_id}...")
-
-        # Get all ports on the switch using ovs-vsctl
-        ports = os.popen(f"sudo ovs-vsctl list-ports s{switch_id}").read().splitlines()
-
-        if not ports:
-            self.logger.warning(f"No ports found for switch {switch_id}. QoS setup skipped.")
-            return
-
-        for port in ports:
-            self.logger.info(f"Applying QoS to {port} on switch s{switch_id}")
-            self.apply_qos_to_port(port)
-
-    def apply_qos_to_port(self, port):
-        """
-        Apply QoS settings to a specific port to limit bandwidth to 200 Mbps.
-        """
-        os.system(f"""
-            sudo ovs-vsctl -- set Port {port} qos=@qos \
-                -- --id=@qos create QoS type=linux-htb other-config:max-rate={BANDWIDTH_LIMIT} \
-                queues:1=@q1 \
-                -- --id=@q1 create Queue other-config:min-rate={BANDWIDTH_LIMIT} other-config:max-rate={BANDWIDTH_LIMIT}
-        """)
-
-        self.logger.info(f"QoS applied to {port}: {BANDWIDTH_LIMIT / 1_000_000} Mbps")
+        # Check if we need to analyze
+        # switch_name = f"s{switch_id}"
+        # if switch_name in PORT_AFFECTED:
+        #     self.analyze_and_predict(switch_id, switch_name)
