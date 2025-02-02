@@ -8,6 +8,7 @@ from ryu.ofproto import ofproto_v1_3
 from ryu.app.simple_switch_13 import SimpleSwitch13  # Base class from Ryu
 
 SLEEP_SEC = 4
+BANDWIDTH_LIMIT = 400000000  # 200 Mbps in bits per second
 
 class SimpleSwitchWithStats(SimpleSwitch13):
     def __init__(self, *args, **kwargs):
@@ -22,8 +23,9 @@ class SimpleSwitchWithStats(SimpleSwitch13):
         datapath = ev.datapath
         if ev.state == MAIN_DISPATCHER:
             self.datapaths[datapath.id] = datapath
-            self.logger.info(f"Switch {datapath.id} connected. Requesting port descriptions.")
+            self.logger.info(f"Switch {datapath.id} connected. Requesting port descriptions and setting QoS.")
             self._request_port_description(datapath)  # Request port descriptions
+            self.setup_qos(datapath.id)  # Apply QoS to all switch ports
         elif ev.state == CONFIG_DISPATCHER:
             if datapath.id in self.datapaths:
                 del self.datapaths[datapath.id]
@@ -77,3 +79,33 @@ class SimpleSwitchWithStats(SimpleSwitch13):
             self.port_names[switch_id][port.port_no] = port.name.decode('utf-8')
 
         self.logger.info("Port names for Switch %s: %s", switch_id, self.port_names[switch_id])
+
+    def setup_qos(self, switch_id):
+        """
+        Sets up QoS for all ports on the switch, limiting bandwidth to 200 Mbps.
+        """
+        self.logger.info(f"Applying QoS on switch {switch_id}...")
+
+        # Get all ports on the switch using ovs-vsctl
+        ports = os.popen(f"sudo ovs-vsctl list-ports s{switch_id}").read().splitlines()
+
+        if not ports:
+            self.logger.warning(f"No ports found for switch {switch_id}. QoS setup skipped.")
+            return
+
+        for port in ports:
+            self.logger.info(f"Applying QoS to {port} on switch s{switch_id}")
+            self.apply_qos_to_port(port)
+
+    def apply_qos_to_port(self, port):
+        """
+        Apply QoS settings to a specific port to limit bandwidth to 200 Mbps.
+        """
+        os.system(f"""
+            sudo ovs-vsctl -- set Port {port} qos=@qos \
+                -- --id=@qos create QoS type=linux-htb other-config:max-rate={BANDWIDTH_LIMIT} \
+                queues:1=@q1 \
+                -- --id=@q1 create Queue other-config:min-rate={BANDWIDTH_LIMIT} other-config:max-rate={BANDWIDTH_LIMIT}
+        """)
+
+        self.logger.info(f"QoS applied to {port}: {BANDWIDTH_LIMIT / 1_000_000} Mbps")
