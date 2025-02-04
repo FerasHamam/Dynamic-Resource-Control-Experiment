@@ -1,4 +1,4 @@
-import os
+import os 
 from datetime import datetime
 import numpy as np
 from ryu.base import app_manager
@@ -6,13 +6,13 @@ from ryu.controller import ofp_event
 from ryu.controller.handler import MAIN_DISPATCHER, CONFIG_DISPATCHER
 from ryu.controller.handler import set_ev_cls
 from ryu.lib import hub
+from ryu.lib.packet import packet, ethernet
 from ryu.ofproto import ofproto_v1_3
 from ryu.app.simple_switch_13 import SimpleSwitch13
 
 # =============================================================================
 # Constants & Configuration
 # =============================================================================
-# For quick testing:
 SLEEP_SEC = 1                       # Collect stats every 1 second
 WINDOW_SECONDS = 60                 # 60 seconds of data
 REQUIRED_HISTORY = WINDOW_SECONDS // SLEEP_SEC  # 60 samples needed (60/1)
@@ -22,9 +22,9 @@ PREDICTION_SEGMENT_SAMPLES = PREDICTION_SEGMENT_DURATION // SLEEP_SEC  # 10 samp
 
 SHARED_LINK_BW = 200                # Link capacity in Mbps
 
-# Port configuration
+# Port configuration: only ports in PORT_AFFECTED will have meters installed.
 PORT_AFFECTED = {'s1': ['s1-eth1']}
-PORT_EXCLUDED = {'s1': ['s1-eth3', 's1-eth4']}
+PORT_EXCLUDED = {'s1': ['s1-eth3', 's1-eth4']}  # not used now for meters
 
 # =============================================================================
 # Main Application Class
@@ -39,11 +39,11 @@ class SimpleSwitchWithStats(SimpleSwitch13):
         # Cache for full FFT predictions per port.
         # Key: (dpid, port_no) -> Value: {'prediction': np.array, 'time': datetime}
         self.prediction_cache = {}
+        # MAC address learning table for packet-in handling.
+        self.mac_to_port = {}
 
         # Start threads:
         self.monitor_thread = hub.spawn(self._monitor)
-        # IMPORTANT: Use the prediction segment duration (10 sec) here,
-        # so the prediction monitor runs every 10 seconds.
         self.prediction_monitor_thread = hub.spawn(self._prediction_monitor)
 
     # -------------------------------------------------------------------------
@@ -82,14 +82,84 @@ class SimpleSwitchWithStats(SimpleSwitch13):
 
     @set_ev_cls(ofp_event.EventOFPPortDescStatsReply, MAIN_DISPATCHER)
     def _port_desc_reply_handler(self, ev):
+        """
+        Handle port description replies.
+        Only install meter entries and static meter flows for ports listed in PORT_AFFECTED.
+        """
         datapath = ev.msg.datapath
         dpid = datapath.id
+        switch_name = f"s{dpid}"
         if dpid not in self.port_names:
             self.port_names[dpid] = {}
         for port in ev.msg.body:
-            # Decode port name if necessary.
-            self.port_names[dpid][port.port_no] = port.name.decode('utf-8')
+            port_name = port.name.decode('utf-8')
+            self.port_names[dpid][port.port_no] = port_name
         self.logger.info("Port names for Switch %s: %s", dpid, self.port_names[dpid])
+
+        # For the switches with PORT_AFFECTED configuration, install meter entries
+        # and also add static meter flows.
+        if switch_name in PORT_AFFECTED.keys():
+            for port in ev.msg.body:
+                port_no = port.port_no
+                port_name = self.port_names[dpid][port_no]
+                if port_name in PORT_EXCLUDED.get(switch_name, []):
+                    continue
+                meter_id = port_no  # using port number as meter id
+                # Calculate rate in kbps (shared limit in Mbps -> kbps)
+                rate_kbps = int(SHARED_LINK_BW * 1000)
+                burst_size = int(rate_kbps * 0.1)  # for example, 10% burst
+                self.install_meter(datapath, meter_id, rate_kbps, burst_size)
+                # Install a static flow that matches on the port and uses the meter.
+                self.add_static_meter_flow(datapath, port_no)
+
+    @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
+    def _packet_in_handler(self, ev):
+        """
+        Handle packet in events.
+        This is the default MAC learning behavior (from SimpleSwitch13).
+        It learns the MAC addresses and installs reactive flows accordingly.
+        """
+        msg = ev.msg
+        datapath = msg.datapath
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        dpid = datapath.id
+
+        pkt = packet.Packet(msg.data)
+        eth = pkt.get_protocols(ethernet.ethernet)[0]
+        dst = eth.dst
+        src = eth.src
+        in_port = msg.match['in_port']
+
+        self.mac_to_port.setdefault(dpid, {})
+        self.mac_to_port[dpid][src] = in_port
+
+        if dst in self.mac_to_port[dpid]:
+            out_port = self.mac_to_port[dpid][dst]
+        else:
+            out_port = ofproto.OFPP_FLOOD
+
+        actions = [parser.OFPActionOutput(out_port)]
+        if out_port != ofproto.OFPP_FLOOD:
+            match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
+            # Install reactive flow with default priority.
+            mod = parser.OFPFlowMod(datapath=datapath, priority=1,
+                                    match=match,
+                                    instructions=[parser.OFPInstructionActions(
+                                        ofproto.OFPIT_APPLY_ACTIONS, actions)])
+            datapath.send_msg(mod)
+            self.logger.info("Reactive flow installed on DP %s: match=%s, actions=%s",
+                             datapath.id, match, actions)
+
+        data = None
+        if msg.buffer_id == ofproto.OFP_NO_BUFFER:
+            data = msg.data
+        out = parser.OFPPacketOut(datapath=datapath,
+                                  buffer_id=msg.buffer_id,
+                                  in_port=in_port,
+                                  actions=actions,
+                                  data=data)
+        datapath.send_msg(out)
 
     @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
     def _port_stats_reply_handler(self, ev):
@@ -106,7 +176,6 @@ class SimpleSwitchWithStats(SimpleSwitch13):
         for stat in body:
             port_no = stat.port_no
             key = (switch_id, port_no)
-            # Cumulative counters
             cum_rx_pkts = stat.rx_packets
             cum_tx_pkts = stat.tx_packets
             cum_rx_bytes = stat.rx_bytes
@@ -114,7 +183,6 @@ class SimpleSwitchWithStats(SimpleSwitch13):
 
             port_name = self.port_names.get(switch_id, {}).get(port_no, f"Port-{port_no}")
 
-            # Compute per-interval delta if previous reading exists
             if key in self.last_cumulative:
                 prev = self.last_cumulative[key]
                 delta_rx_pkts = cum_rx_pkts - prev["rx_pkts"]
@@ -129,7 +197,6 @@ class SimpleSwitchWithStats(SimpleSwitch13):
                 port_name, delta_rx_pkts, delta_tx_pkts, delta_rx_bytes, delta_tx_bytes
             )
 
-            # Update last cumulative values
             self.last_cumulative[key] = {
                 "rx_pkts": cum_rx_pkts,
                 "tx_pkts": cum_tx_pkts,
@@ -137,7 +204,6 @@ class SimpleSwitchWithStats(SimpleSwitch13):
                 "tx_bytes": cum_tx_bytes
             }
 
-            # Update history (store the delta sample)
             if key not in self.stats_history:
                 self.stats_history[key] = []
             self.stats_history[key].append({
@@ -147,10 +213,9 @@ class SimpleSwitchWithStats(SimpleSwitch13):
                 "rx_bytes": delta_rx_bytes,
                 "tx_bytes": delta_tx_bytes
             })
-            # Keep only the most recent MAX_HISTORY samples
             if len(self.stats_history[key]) > MAX_HISTORY:
                 self.stats_history[key].pop(0)
-                
+
     # -------------------------------------------------------------------------
     # FFT-Based Prediction & QoS Decision (Every PREDICTION_SEGMENT_DURATION seconds)
     # -------------------------------------------------------------------------
@@ -176,6 +241,9 @@ class SimpleSwitchWithStats(SimpleSwitch13):
                 switch_name = f"s{dpid}"
                 # Skip excluded ports.
                 if port_name in PORT_EXCLUDED.get(switch_name, []):
+                    continue
+                
+                if switch_name not in PORT_AFFECTED.keys():
                     continue
 
                 # Build the time series using the most recent REQUIRED_HISTORY samples.
@@ -235,20 +303,25 @@ class SimpleSwitchWithStats(SimpleSwitch13):
                 # Define threshold: 90% of shared link capacity (converted to bps)
                 threshold_bps_90 = 0.9 * (SHARED_LINK_BW * 1e6)
                 threshold_bps_50 = 0.5 * (SHARED_LINK_BW * 1e6)
-
-                if pred['others'] > threshold_bps_50:
+                if pred["others"] > threshold_bps_50:
                     self.logger.info(
-                        "Switch: %s - Predicted throughput (%.2f bps) is over threshold (%.2f bps) -> Trigger QoS",
+                        "Switch: %s - Predicted throughput (%.2f bps) is above threshold (%.2f bps) -> Trigger QoS",
                         dpid, total_predicted_bps, threshold_bps_50
                     )
-                    
-                    pass 
+                    for (dpid_port, history) in self.stats_history.items():
+                        dpid_curr, port_no = dpid_port
+                        if dpid_curr != dpid:
+                            continue
+                        port_name = self.port_names.get(dpid, {}).get(port_no, f"Port-{port_no}")
+                        if port_name not in PORT_EXCLUDED.get(f"s{dpid}", []):
+                            self.apply_qos_rules(self.datapaths[dpid],
+                                                    port_name,
+                                                    threshold_bps_50)
                 elif total_predicted_bps < threshold_bps_90:
                     self.logger.info(
                         "Switch: %s - Predicted throughput (%.2f bps) is below threshold (%.2f bps) -> Trigger QoS",
                         dpid, total_predicted_bps, threshold_bps_90
                     )
-                    # Apply QoS for each affected port on this switch.
                     for (dpid_port, history) in self.stats_history.items():
                         dpid_curr, port_no = dpid_port
                         if dpid_curr != dpid:
@@ -257,58 +330,127 @@ class SimpleSwitchWithStats(SimpleSwitch13):
                         if port_name in PORT_AFFECTED.get(f"s{dpid}", []):
                             self.apply_qos_rules(self.datapaths[dpid],
                                                  port_name,
-                                                 0.5 * (SHARED_LINK_BW * 1e6))
-                        else:
-                            pass
+                                                 (SHARED_LINK_BW * 1e6))
                 else:
                     self.logger.info(
                         "Switch: %s - Predicted throughput (%.2f bps) meets/exceeds threshold (%.2f bps) -> No QoS needed",
                         dpid, total_predicted_bps, threshold_bps_90
                     )
-                    # Optionally: Remove previously applied QoS rules for this switch.
+                    for (dpid_port, history) in self.stats_history.items():
+                        dpid_curr, port_no = dpid_port
+                        if dpid_curr != dpid:
+                            continue
+                        port_name = self.port_names.get(dpid, {}).get(port_no, f"Port-{port_no}")
+                        if port_name not in PORT_EXCLUDED.get(f"s{dpid}", []):
+                            self.apply_qos_rules(self.datapaths[dpid],
+                                                 port_name,
+                                                 (SHARED_LINK_BW * 1e6))
+                    
 
     # -------------------------------------------------------------------------
     # FFT Prediction with Zero-Padding + IFFT
     # -------------------------------------------------------------------------
     def predict_future_with_ifft(self, time_series, n_predict):
-        """
-        Predict future values by computing the FFT of the input time_series,
-        zero-padding the FFT coefficients to length (n + n_predict) (n_predict should equal REQUIRED_HISTORY),
-        and applying the IFFT.
-        
-        :param time_series: 1D numpy array of delta values (length n)
-        :param n_predict: Number of extra samples to predict (should be 60)
-        :return: 1D numpy array of predicted delta values (length n_predict)
-        """
         n = len(time_series)
         fft_coeffs = np.fft.fft(time_series)
-        # Optional: threshold small coefficients (remove noise)
         threshold = 0.25 * np.max(np.abs(fft_coeffs))
         fft_coeffs[np.abs(fft_coeffs) < threshold] = 0
 
-        # Zero-pad FFT coefficients to new length: N = n + n_predict
         N = n + n_predict
         padded_fft = np.zeros(N, dtype=complex)
         half = (n // 2) + 1
         padded_fft[:half] = fft_coeffs[:half]
         padded_fft[-(n - half):] = fft_coeffs[half:]
-        # Compute IFFT and scale appropriately.
         extended_signal = np.fft.ifft(padded_fft) * (N / n)
-        return np.real(extended_signal[n:])  # Return only the extrapolated part
+        return np.real(extended_signal[n:])
 
     # -------------------------------------------------------------------------
-    # QoS Rule Application (Placeholder)
+    # Meter and Flow Setup Functions
+    # -------------------------------------------------------------------------
+    def install_meter(self, datapath, meter_id, rate_kbps, burst_size):
+        """
+        Installs a meter entry on the switch.
+        :param datapath: The switch datapath object.
+        :param meter_id: The meter identifier.
+        :param rate_kbps: Rate in kbps.
+        :param burst_size: Burst size in kbps.
+        """
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        band = parser.OFPMeterBandDrop(rate=rate_kbps, burst_size=burst_size)
+        req = parser.OFPMeterMod(datapath=datapath,
+                                 command=ofproto.OFPMC_ADD,
+                                 flags=ofproto.OFPMF_KBPS,
+                                 meter_id=meter_id,
+                                 bands=[band])
+        datapath.send_msg(req)
+        self.logger.info("Installed meter on DP %s: meter_id=%s, rate=%d kbps, burst=%d",
+                         datapath.id, meter_id, rate_kbps, burst_size)
+
+    def add_static_meter_flow(self, datapath, port_no):
+        """
+        Installs a static flow on the switch for the specified port.
+        This flow matches only on the input port and applies:
+         1. A meter instruction (with meter ID equal to port_no)
+         2. Normal forwarding (OFPP_NORMAL)
+        This is installed in addition to the reactive flows.
+        
+        :param datapath: The switch datapath.
+        :param port_no: The port identifier (used also as the meter id).
+        """
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+
+        # Create a match that uses the input port.
+        match = parser.OFPMatch(in_port=port_no)
+
+        # Prepare the instructions:
+        instructions = []
+        # 1. Attach the meter instruction using port_no as the meter id.
+        instructions.append(parser.OFPInstructionMeter(port_no, ofproto.OFPIT_METER))
+        # 2. Add a forwarding action using the "normal" port.
+        actions = [parser.OFPActionOutput(ofproto.OFPP_NORMAL)]
+        instructions.append(parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions))
+
+        mod = parser.OFPFlowMod(datapath=datapath,
+                                priority=20,
+                                match=match,
+                                instructions=instructions)
+        datapath.send_msg(mod)
+        self.logger.info("Installed static meter flow on DP %s for port %s: match=%s, actions=%s",
+                         datapath.id, port_no, match, actions)
+
+    # -------------------------------------------------------------------------
+    # QoS Rule Application (Based on Meters)
     # -------------------------------------------------------------------------
     def apply_qos_rules(self, datapath, port_name, guaranteed_bps):
         """
-        Placeholder for QoS logic.
+        Adjusts the meter configuration for the port by modifying its meter rate.
         :param datapath: The switch datapath object.
         :param port_name: Name of the port.
-        :param guaranteed_bps: Guaranteed bandwidth (in bits per second).
+        :param guaranteed_bps: New guaranteed bandwidth (in bits per second).
         """
-        mbps = guaranteed_bps / 1e6
-        self.logger.info(
-            "Applying QoS rules to DP: %s, Port: %s, guaranteeing bandwidth: %.2f Mbps",
-            datapath.id, port_name, mbps
-        )
-        # TODO: Implement actual QoS configuration (e.g., queue setup, meter configuration).
+        dpid = datapath.id
+        port_no = None
+        for p_no, p_name in self.port_names.get(dpid, {}).items():
+            if p_name == port_name:
+                port_no = p_no
+                break
+        if port_no is None:
+            self.logger.error("Port %s not found in DP %s", port_name, dpid)
+            return
+
+        meter_id = port_no
+        new_rate_kbps = int(guaranteed_bps / 1000)  # Convert bps to kbps.
+        new_burst = int(new_rate_kbps * 0.1)
+        parser = datapath.ofproto_parser
+        ofproto = datapath.ofproto
+        band = parser.OFPMeterBandDrop(rate=new_rate_kbps, burst_size=new_burst)
+        req = parser.OFPMeterMod(datapath=datapath,
+                                 command=ofproto.OFPMC_MODIFY,
+                                 flags=ofproto.OFPMF_KBPS,
+                                 meter_id=meter_id,
+                                 bands=[band])
+        datapath.send_msg(req)
+        self.logger.info("Modified meter on DP %s, Port %s (meter id %s) to rate %d kbps",
+                         dpid, port_name, meter_id, new_rate_kbps)
