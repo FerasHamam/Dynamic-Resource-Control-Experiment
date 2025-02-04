@@ -11,12 +11,28 @@ pkg_check_modules(ZMQ REQUIRED libzmq)
 # Find fftw3 using pkg-config
 pkg_check_modules(FFTW REQUIRED fftw3)
 
+# Find libpcap using pkg-config
+pkg_check_modules(PCAP REQUIRED libpcap)
+
 # Add the executable
 add_executable(sender sender.c)
 
-# Include directories for ZMQ and FFTW using pkg-config paths
-include_directories(${ZMQ_INCLUDE_DIRS})
-include_directories(${FFTW_INCLUDE_DIRS})
+# Include directories
+target_include_directories(sender PRIVATE 
+    ${ZMQ_INCLUDE_DIRS}
+    ${FFTW_INCLUDE_DIRS}
+)
 
-# Link ZMQ, pthread, and FFTW libraries
-target_link_libraries(sender ${ZMQ_LIBRARIES} pthread ${FFTW_LIBRARIES} m)
+# Link libraries
+target_link_directories(sender PRIVATE
+    ${ZMQ_LIBRARY_DIRS}
+    ${FFTW_LIBRARY_DIRS}
+)
+
+# Explicitly link against pcap
+target_link_libraries(sender
+    ${ZMQ_LIBRARIES}
+    ${FFTW_LIBRARIES}
+    pthread
+    m
+)

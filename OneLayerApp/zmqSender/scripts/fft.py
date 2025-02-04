@@ -1,133 +1,159 @@
 import numpy as np
-from scipy.fftpack import fft
-import argparse
+from scipy.fftpack import fft, ifft
 import matplotlib.pyplot as plt
 import os
+from datetime import datetime, timedelta
 
-
-parser = argparse.ArgumentParser(description="Monitor and adjust tc settings based on JSON file.")
-parser.add_argument("--prediction", type=int, nargs='+', required=True, help="Prediction Number #")
-args = parser.parse_args()
-prediction_number = args.prediction
-
-script_dir = os.path.dirname(os.path.abspath(__file__))  # Get the directory of the script
-log_file = os.path.join(script_dir, "..", "build", "log.txt")  
-prediction_file = os.path.join(script_dir, "..", "build", "prediction.txt") 
+# Prediction number for file naming
+prediction_number = 3
+log_file = "log.txt"  # Replace with your log file name
+prediction_file = "prediction.txt"
 
 def read_transfer_rates(filename):
-    """Read time_taken:bytes_sent values from a file and compute transfer rates."""
+    """Read time and transfer rate values from a file."""
+    times = []
     rates = []
     with open(filename, 'r') as file:
         for line in file:
             try:
-                time_taken, bytes_sent = line.strip().split(':')
-                time_taken = float(time_taken)
-                bytes_sent = float(bytes_sent)
-                
-                if time_taken > 0 and bytes_sent > 0:
-                    # Calculate rate in Mbps: (8 * bytes_sent) / (time_taken * 10^6)
-                    rate = (8 * bytes_sent) / (time_taken * 1_000_000)
-                    rates.append(rate)
+                # Extract time and rate (adjust split character if needed)
+                time, rate = line.strip().split(',')  # Assuming comma-separated values
+                time = time.strip()  # Time in HH:MM:SS format
+                rate = float(rate.split()[0])  # Extract rate in Mbps
+                times.append(time)
+                rates.append(rate)
             except ValueError:
-                continue  # Skip lines that do not match the expected format
-    
-    # Remove the log file after reading
-    os.remove(filename)
+                continue  # Skip lines that don't match the expected format
     
     if not rates:
         raise ValueError("No valid data in log file.")
     
-    return np.array(rates)
+    return np.array(times), np.array(rates)
 
 def apply_fft(rate):
     """Apply FFT to detect periodic patterns."""
-    rate = rate - np.mean(rate)
     n = len(rate)
     freq_components = fft(rate)
     magnitudes = np.abs(freq_components)[:n // 2]  # Get magnitude of first half frequencies
-    return magnitudes
+    return freq_components, magnitudes
 
-def calculate_threshold(frequencies):
-    """Calculate dynamic threshold based on mean and standard deviation."""
-    mean = np.mean(frequencies)
-    stddev = np.std(frequencies)
-    return mean + 1.5 * stddev
+def apply_ifft(freq_components, dominant_indices):
+    """Reconstruct the signal using inverse FFT."""
+    filtered_freq = np.zeros_like(freq_components, dtype=complex)
+    filtered_freq[dominant_indices] = freq_components[dominant_indices]
+    filtered_freq[-dominant_indices] = np.conjugate(freq_components[dominant_indices])  # Conjugate for symmetry
+    reconstructed = np.real(ifft(filtered_freq))  # Take real part since the original was real-valued
+    return reconstructed
 
-def detect_dominant_frequencies(frequencies, threshold):
-    """Identify dominant frequency indices above threshold."""
-    dominant_indices = np.where(frequencies > threshold)[0]
-    return dominant_indices
+def predict_future_rates(reconstructed_rate, extension_factor=1):
+    """Extend the reconstructed signal to predict future rates."""
+    future_length = int(len(reconstructed_rate) * extension_factor)  # Extend the signal length by a factor of 5
+    future_rates = np.zeros(future_length)
 
-def calculate_average_rate_fft(rate, dominant_indices):
-    """
-    Calculates the average rate based on dominant frequencies.
+    # Repeat the reconstructed rate pattern to fill the future rate array
+    pattern_length = len(reconstructed_rate)
+    for i in range(future_length):
+        future_rates[i] = reconstructed_rate[i % pattern_length]  # Repeat the pattern
 
-    Args:
-        rate: A numpy array of transfer rates.
-        dominant_indices: A list of indices of dominant frequencies.
+    return future_rates
 
-    Returns:
-        The average rate in Mbps.
-    """
-    if len(dominant_indices) == 0: 
-        return np.mean(rate)  # If no dominant frequencies, use overall average
+def predict_future_times(times, extension_factor=1):
+    """Predict future times by repeating the original pattern."""
+    n = len(times)
+    future_length = int(n * extension_factor)
+
+    # Convert times to datetime objects
+    time_objects = [datetime.strptime(t, '%H:%M:%S') for t in times]
+
+    # Calculate time interval pattern
+    time_diffs = [(time_objects[i+1] - time_objects[i]).total_seconds() for i in range(n - 1)]
     
-    dominant_rates = []
-    for freq_index in dominant_indices:
-        # Estimate period (inverse of frequency)
-        period = len(rate) / freq_index
-        # Calculate average rate within the estimated period
-        start_idx = int(max(0, freq_index - period // 2))
-        end_idx = int(min(freq_index + period // 2, len(rate) - 1))
-        dominant_rates.append(np.mean(rate[start_idx:end_idx]))
-    return np.mean(dominant_rates)
-
-def plot_results(rate, frequencies, dominant_indices, threshold):
-    """Plot network rate, FFT magnitude, and dominant frequencies."""
-    fig, axs = plt.subplots(2, 1, figsize=(10, 6))
+    # Repeat the pattern to match future_length exactly
+    future_times_seconds = []
+    last_time = time_objects[-1]
     
-    # Plot original transfer rate data
-    axs[0].plot(rate, label="Transfer Rate")
-    axs[0].set_title("Network Transfer Rate Over Time")
-    axs[0].set_xlabel("Time Steps (Chunk index)")
+    i = 0
+    while len(future_times_seconds) < future_length:
+        diff = time_diffs[i % len(time_diffs)]  # Loop through intervals
+        last_time += timedelta(seconds=diff)
+        future_times_seconds.append((last_time - time_objects[0]).total_seconds())
+        i += 1
+
+    return np.array(future_times_seconds[:future_length])  # Ensure correct size
+
+def plot_results(times, rate, magnitudes, frequencies, reconstructed_rate, dominant_indices):
+    """Plot results, showing time in seconds for predictions."""
+
+    fig, axs = plt.subplots(3, 1, figsize=(10, 12))
+
+    # Plot original transfer rate
+    axs[0].plot(times, rate, label="Original Transfer Rate", color="blue")
+    axs[0].set_title("Original Network Transfer Rate Over Time")
+    axs[0].set_xlabel("Time")
     axs[0].set_ylabel("Rate (Mbps)")
     axs[0].legend()
-    
-    # Plot FFT results
-    axs[1].plot(frequencies, label="FFT Magnitude")
-    axs[1].axhline(y=threshold, color='r', linestyle='--', label="Threshold")
-    axs[1].scatter(dominant_indices, frequencies[dominant_indices], color='red', label="Dominant Frequencies")
-    axs[1].set_title("FFT Analysis of Transfer Rate")
-    axs[1].set_xlabel("Frequency Index")
+
+    # Plot FFT magnitude
+    axs[1].plot(frequencies[:len(frequencies)//2], magnitudes, label="FFT Magnitude", color="green")
+    axs[1].scatter(frequencies[dominant_indices], magnitudes[dominant_indices], color='red', label="Dominant Frequencies")
+    axs[1].set_title("FFT Magnitude of Transfer Rate")
+    axs[1].set_xlabel("Frequency (Hz)")
     axs[1].set_ylabel("Magnitude")
     axs[1].legend()
-    
+
+    # Plot reconstructed rate
+    time_reconstructed = np.linspace(0, (datetime.strptime(times[-1], '%H:%M:%S') - datetime.strptime(times[0], '%H:%M:%S')).total_seconds(), len(reconstructed_rate))
+    axs[2].plot(time_reconstructed, reconstructed_rate, label="Reconstructed Rate", color="orange", linestyle="dashed")
+    axs[2].set_title("Reconstructed Transfer Rate (Using IFFT)")
+    axs[2].set_xlabel("Time (seconds)")
+    axs[2].set_ylabel("Rate (Mbps)")
+    axs[2].legend()
+
+    # Plot predicted future rates
+    # axs[3].plot(future_times_seconds, future_rates, label="Predicted Future Rates", color="red", linestyle="dotted")
+    # axs[3].set_title("Predicted Future Rates")
+    # axs[3].set_xlabel("Time (seconds)")
+    # axs[3].set_ylabel("Rate (Mbps)")
+    # axs[3].legend()
+
     plt.tight_layout()
+    plt.savefig(f"fft_ifft_prediction_{prediction_number}.png")
     plt.show()
-    plt.savefig(f"fft{prediction_number}.png")
 
-# Read transfer rate data from log.txt
-rate = read_transfer_rates(log_file)
+def write_predictions_to_file(times, rates, filename):
+    time_reconstructed = np.linspace(0, (datetime.strptime(times[-1], '%H:%M:%S') - datetime.strptime(times[0], '%H:%M:%S')).total_seconds(), len(reconstructed_rate))
+    """Write predicted times and rates into a file."""
+    with open(filename, 'w') as f:
+        f.write("Predicted Time (seconds), Predicted Rate (Mbps)\n")
+        for time, rate in zip(time_reconstructed, rates):
+            f.write(f"{time:.2f}, {rate:.2f}\n")
 
-# Apply FFT
-frequencies = apply_fft(rate)
+
+# Read data from log file
+times, rate = read_transfer_rates(log_file)
+
+# Apply FFT to detect dominant frequencies
+freq_components, magnitudes = apply_fft(rate)
+frequencies = np.fft.fftfreq(len(rate), d=1)
 
 # Calculate threshold and detect dominant frequencies
-threshold = calculate_threshold(frequencies)
-dominant_indices = detect_dominant_frequencies(frequencies, threshold)
+threshold = np.mean(magnitudes) + 0.25 * np.std(magnitudes)
 
-# Calculate average rate using dominant frequencies
-predicted_rate_fft = calculate_average_rate_fft(rate, dominant_indices)
+dominant_indices = np.where(magnitudes > threshold)[0]
 
-# Calculate congestion (assuming LINK_BANDWIDTH is defined elsewhere)
-congestion = (1.0 - (predicted_rate_fft / 200)) * 100
+# Apply IFFT to reconstruct the signal
+reconstructed_rate = apply_ifft(freq_components, dominant_indices)
 
-# Print the average rate and congestion
-print("Average Rate (Mbps) using FFT:", predicted_rate_fft)
-print(f"Congestion: {congestion:.0f}%")
+# Predict future rates based on the reconstructed signal (repeating the pattern)
+# future_rates = predict_future_rates(reconstructed_rate)
 
-with open(prediction_file, "w") as f:
-    f.write(f"{congestion:.0f}\n")
-    f.write(f"{predicted_rate_fft:.0f}\n")
-# Plot results (optional)
-plot_results(rate, frequencies, dominant_indices, threshold)
+# Predict future times (in seconds)
+# future_times_seconds = predict_future_times(times)
+
+# Write predictions to a file
+write_predictions_to_file(times, reconstructed_rate, prediction_file)
+
+# print(future_times_seconds[0])
+
+# Plot results
+plot_results(times, rate, magnitudes, frequencies, reconstructed_rate, dominant_indices)

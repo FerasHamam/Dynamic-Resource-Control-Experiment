@@ -5,15 +5,16 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <stdatomic.h>
+#include <sys/time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
-#include "step_manager.h"
+#include <pthread.h>
 
-#define BASE_PORT 4444
+#define BASE_PORT 5555
+#define DIRECTORY "../data/"
 
 void *context;
-DataQuality shared_data_quality = FULL;
 
 // Function to create directories recursively
 int create_directories(const char *path)
@@ -57,273 +58,171 @@ char *construct_filepath(const char *filename, int step)
         perror("Failed to allocate memory");
         return NULL;
     }
-
     char new_directory[256];
-    const char *directory = "../data";
-
-    if (strstr(filename, "reduced") != NULL)
-    {
-        snprintf(new_directory, sizeof(new_directory), "%s/%s/%d/", directory, "reduced", step);
-    }
-    else if (strstr(filename, "delta") != NULL)
-    {
-        snprintf(new_directory, sizeof(new_directory), "%s/%s/%d/", directory, "delta", step);
-    }
-    else
-    {
-        snprintf(new_directory, sizeof(new_directory), "%s", directory);
-    }
-
-    // Ensure the directory exists
+    snprintf(new_directory, sizeof(new_directory), "%s/%d/", DIRECTORY, step);
     if (create_directories(new_directory) != 0)
     {
         free(filepath);
         return NULL;
     }
-
-    // Construct the full file path
     sprintf(filepath, "%s%s", new_directory, filename);
     return filepath;
 }
 
-void log_time_info(struct timeval *start, double *bytesReceived, int type)
-{
-    struct timeval end;
-    gettimeofday(&end, NULL);
-
-    // Check if 2 seconds have passed
-    double elapsed = (end.tv_sec - start->tv_sec) + (end.tv_usec - start->tv_usec) / 1000000.0;
-    if (elapsed >= 2.0)
-    {
-        // Determine file path based on data type (reduced - 0, full - 1)
-        const char *filePath = (type == 0) ? "../data/time_reduced.txt" : "../data/time_aug.txt";
-        FILE *file = fopen(filePath, "a");
-        if (file == NULL)
-        {
-            perror("Error opening file");
-            return;
-        }
-        char buffer[128];
-        int written = snprintf(buffer, sizeof(buffer), "%.3f, %.3f\n", elapsed, *bytesReceived);
-        if (written < 0)
-        {
-            perror("Error formatting data");
-            fclose(file);
-            return;
-        }
-        if (fwrite(buffer, 1, strlen(buffer), file) != strlen(buffer))
-        {
-            perror("Error writing to file");
-        }
-        fclose(file);
-        //printf("Logged: Elapsed = %.3f, BytesReceived = %.3f to %s\n", elapsed, *bytesReceived, filePath);
-        gettimeofday(start, NULL);
-        *bytesReceived = 0.0;
-    }
-}
-
-void run_blob_detection_scripts(DataQuality data_quality, int step)
+void run_blob_detection_scripts(int step)
 {
     int status;
     return;
-    if (data_quality == REDUCED)
-    {
-        printf("Running Reduced blob detection...\n");
-        char command[512];
-        snprintf(command, sizeof(command), "../venv/bin/python ../scripts/data_to_blob_detection.py --app_name xgc --data_type reduced --path ~/zmq/data/ --output_name xgc_reduced.png --step %d > /dev/tty", step);
-        status = system(command);
-    }
-    else
-    {
-        printf("Running Full blob detection...\n");
-        char command[512];
-        snprintf(command, sizeof(command), "../venv/bin/python ../scripts/combine.py --step %d > /dev/tty", step);
-        status = system(command);
-    }
+    printf("Running Full blob detection...\n");
+    char command[512];
+    snprintf(command, sizeof(command), "../venv/bin/python ../scripts/combine.py --step %d > /dev/tty", step);
+    status = system(command);
     printf("step (%d): System status: %d, run the blob detection scripts\n", step, status);
 }
 
-// Create a function to write a file using fork
-void write_file(const char *filename, const char *data, size_t size)
+void connect_socket(void **socket, int thread_index)
 {
-    pid_t pid = fork();
+    char bind_address[50];
+    snprintf(bind_address, sizeof(bind_address), "tcp://0.0.0.0:%d", BASE_PORT + thread_index);
+    *socket = zmq_socket(context, ZMQ_PAIR);
+    zmq_bind(*socket, bind_address);
+    printf("Binding to port %d\n", BASE_PORT + thread_index);
+}
 
-    if (pid == -1)
-    {
-        perror("fork failed");
-        return;
-    }
+void recv_data_chunk(void *socket, char **data, size_t *size)
+{
+    zmq_msg_t msg;
+    zmq_msg_init(&msg);
+    zmq_msg_recv(&msg, socket, 0);
+    *size = zmq_msg_size(&msg);
+    *data = malloc(*size);
+    memcpy(*data, zmq_msg_data(&msg), *size);
+    zmq_msg_close(&msg);
+}
 
-    if (pid == 0)
+void send_data_chunk(void *socket, char *message, size_t size)
+{
+    zmq_msg_t msg;
+    zmq_msg_init_size(&msg, size);
+    zmq_msg_init_data(&msg, message, size, NULL, NULL);
+    zmq_msg_send(&msg, socket, 0);
+    zmq_msg_close(&msg);
+}
+
+void log_time_taken(struct timeval start, struct timeval end, int thread_index)
+{
+    double time_taken = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1e6;
+    char log_filepath[256];
+    snprintf(log_filepath, sizeof(log_filepath), "%s/log%d.txt", DIRECTORY, thread_index);
+    FILE *file = fopen(log_filepath, "a");
+    if (file != NULL)
     {
-        FILE *file = fopen(filename, "ab");
-        if (file == NULL)
-        {
-            perror("fopen failed");
-            exit(1); // Exit child process if file cannot be opened
-        }
-        fwrite(data, 1, size, file);
+        fprintf(file, "%f\n", time_taken);
         fclose(file);
-        exit(0); // Child process exits after writing
     }
+    else
+    {
+        perror("Failed to open log file");
+    }
+}
+
+void write_data_to_file(FILE *file, char *data, size_t size)
+{
+    // fork process
+    char *buffer = malloc(size);
+    memcpy(buffer, data, size);
+    fwrite(buffer, 1, size, file);
+    free(buffer);
 }
 
 void *recv_data(void *arg)
 {
     int thread_index = *(int *)arg;
     free(arg);
+    void *receiver;
+    connect_socket(&receiver, thread_index);
+
     int step = 0;
-
-    // Initialize the socket
-    char bind_address[50];
-    int port = BASE_PORT + thread_index;
-    void *socket = zmq_socket(context, ZMQ_PAIR);
-    snprintf(bind_address, sizeof(bind_address), "tcp://0.0.0.0:%d", port);
-    zmq_bind(socket, bind_address);
-    printf("Binding to port %d\n", port);
-
-    DataQuality quality = shared_data_quality;
-
-    zmq_msg_t msg;
     bool is_port_complete = false;
-
-    // Timing
     struct timeval start, end;
-    double bytes_received = 0.0;
+    gettimeofday(&start, NULL);
     while (!is_port_complete)
     {
-        // Receive filenames
-        char **filenames = NULL;
-        char **filepaths = NULL;
-        int file_count = 0;
-        // Add filename to appropriate array based on quality
-        StepInfo *current_step = get_or_create_step(step, quality);
-        //printf("Step (%d) Started\n", step);
-        while (true)
-        {
-            zmq_msg_init(&msg);
-            zmq_msg_recv(&msg, socket, 0);
-            size_t filename_len = zmq_msg_size(&msg);
-            if (filename_len == 0)
-            {
-                break; // End of filenames
-            }
 
-            filenames = realloc(filenames, (file_count + 1) * sizeof(char *));
-            filepaths = realloc(filepaths, (file_count + 1) * sizeof(char *));
-            if (filenames == NULL || filepaths == NULL)
-            {
-                perror("Failed to allocate memory");
-                exit(EXIT_FAILURE);
-            }
-
-            filenames[file_count] = malloc(filename_len + 1);
-            memcpy(filenames[file_count], zmq_msg_data(&msg), filename_len);
-            filenames[file_count][filename_len] = '\0';
-            filepaths[file_count] = construct_filepath(filenames[file_count], step);
-            add_filename(thread_index == 0 ? &current_step->reduced_filenames : &current_step->augmentation_filenames, filenames[file_count]);
-            file_count++;
-        }
-        // Open files for writing
-        FILE *files[file_count];
-        for (int i = 0; i < file_count; i++)
+        // Receive filename
+        char *filename;
+        size_t filename_len;
+        recv_data_chunk(receiver, &filename, &filename_len);
+        if (filename_len > 0)
         {
-            files[i] = fopen(filepaths[i], "ab");
-            if (files[i] == NULL)
+            filename[filename_len - 1] = '\0';
+            printf("Received filename: %s\n", filename);
+            char *filepath = construct_filepath(filename, step);
+
+            if (filepath)
             {
-                perror("Failed to open file");
-                exit(EXIT_FAILURE);
+                FILE *file = fopen(filepath, "ab");
+                if (file)
+                {
+                    // Receive file chunks
+                    bool is_file_complete = false;
+                    while (!is_file_complete)
+                    {
+                        char *data;
+                        size_t chunk_size;
+                        recv_data_chunk(receiver, &data, &chunk_size);
+                        if (chunk_size == 0)
+                        {
+                            is_file_complete = true;
+                            free(data);
+                        }
+                        else
+                        {
+                            write_data_to_file(file, data, chunk_size);
+                            free(data);
+                        }
+                    }
+                    fclose(file);
+                }
+                free(filepath);
             }
+            free(filename);
         }
 
-        // Receive files chunks
-        int num_read_files = 0;
-        int file_index = 0;
-        int iter = 0;
-        while (num_read_files < file_count)
-        {
-            // Receive file chunks
-            zmq_msg_init(&msg);
-            gettimeofday(&start, NULL);
-            zmq_msg_recv(&msg, socket, 0);
-            gettimeofday(&end, NULL);
-            size_t chunk_size = zmq_msg_size(&msg);
-            if (chunk_size == 0)
-            {
-                printf("Step (%d), Received file: %s\n", step, filenames[file_index]);
-                num_read_files++;
-                iter = 0;
-                fclose(files[file_index]);
-                file_index = (file_index + 1) % file_count;
-                continue;
-            }
-            char *buffer = malloc(chunk_size);
-            memcpy(buffer, zmq_msg_data(&msg), chunk_size);
-            write_file(filepaths[file_index], buffer, chunk_size);
-            free(buffer);
-
-            bytes_received += chunk_size;
-            double elapsed = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
-            // Send elapsed time to log
-            zmq_msg_init_data(&msg, &elapsed, sizeof(double), NULL, NULL);
-            zmq_msg_send(&msg, socket, 0);
-            iter++;
-            if (iter % 1 == 0)
-            {
-                iter = 0;
-                file_index = (file_index + 1) % file_count;
-            }
-        }
-
-        // Receive alert message
-        zmq_msg_init(&msg);
-        zmq_msg_recv(&msg, socket, 0);
-        int alert = atoi(zmq_msg_data(&msg));
-
-        // if 0 that means the port is complete and no more steps,
-        // if 1 move to the next step by incrementing step
-
-        // Logging And ack
-        if (thread_index == 0)
-        {
-            //printf("step (%d): received Reduced files\n", step);
-            // Ack message
-            char ack_message[256];
-            snprintf(ack_message, sizeof(ack_message), "step (%d): Received Reduced files", step);
-            zmq_msg_init_size(&msg, strlen(ack_message) + 1);
-            memcpy(zmq_msg_data(&msg), ack_message, strlen(ack_message) + 1);
-            zmq_msg_send(&msg, socket, 0);
-        }
-        else if (thread_index == 1)
-        {
-            //printf("step (%d): received Augmentation files\n", step);
-            // Ack message
-            char ack_message[256];
-            snprintf(ack_message, sizeof(ack_message), "step (%d): Received Augmentation files", step);
-            zmq_msg_init_size(&msg, strlen(ack_message) + 1);
-            memcpy(zmq_msg_data(&msg), ack_message, strlen(ack_message) + 1);
-            zmq_msg_send(&msg, socket, 0);
-        }
         // Process alert
+        char *alertMsg;
+        size_t alert_size;
+        recv_data_chunk(receiver, &alertMsg, &alert_size);
+        // printf("Received alert: %s, %ld\n", alertMsg, alert_size);
+        int alert = atoi(alertMsg);
+        free(alertMsg);
+
+        run_blob_detection_scripts(step);
+
+        // printf("Received alert: %d, %ld\n", alert, alert_size);
+        if (alert != 1)
+        {
+            char ack_message[256];
+            snprintf(ack_message, sizeof(ack_message), "step (%d): Received %s", step, thread_index == 0 ? "Reduced data" : "Aug data");
+            send_data_chunk(receiver, ack_message, strlen(ack_message) + 1);
+            gettimeofday(&end, NULL);
+            log_time_taken(start, end, thread_index);
+            gettimeofday(&start, NULL);
+        }
+
         switch (alert)
         {
         case 1:
-            mark_step_complete(step, thread_index == 0 ? FULL : REDUCED);
+            continue;
+        case 2:
             step++;
             break;
         default:
-            mark_step_complete(step, thread_index == 0 ? FULL : REDUCED);
             is_port_complete = true;
-            break;
         }
     }
 
-    // Mark all steps as complete
-    get_or_create_step(-1, quality);
-
-    // Cleanup
-    zmq_msg_close(&msg);
-    zmq_close(socket);
+    zmq_close(receiver);
     pthread_exit(NULL);
     return NULL;
 }
@@ -332,30 +231,19 @@ int main()
 {
     printf("Starting Receiver...\n");
     context = zmq_ctx_new();
-    init_step_array();
+    pthread_t partial_data1, partial_data2;
+    int *thread_index1 = malloc(sizeof(int));
+    *thread_index1 = 0;
+    pthread_create(&partial_data1, NULL, recv_data, thread_index1);
 
-    pthread_t high_quality_thread, low_quality_thread, processor_thread;
+    int *thread_index2 = malloc(sizeof(int));
+    *thread_index2 = 1;
+    pthread_create(&partial_data2, NULL, recv_data, thread_index2);
 
-    pthread_create(&processor_thread, NULL, step_processor_thread, NULL);
-
-    // Always create thread for index 0
-    int *thread_index_hq = malloc(sizeof(int));
-    *thread_index_hq = 0;
-    pthread_create(&high_quality_thread, NULL, recv_data, thread_index_hq);
-
-    // Create thread for index 1 (it will exit early if in REDUCED mode)
-    int *thread_index_lq = malloc(sizeof(int));
-    *thread_index_lq = 1;
-    pthread_create(&low_quality_thread, NULL, recv_data, thread_index_lq);
-
-    pthread_join(high_quality_thread, NULL);
-    pthread_join(low_quality_thread, NULL);
-    pthread_join(processor_thread, NULL);
+    pthread_join(partial_data1, NULL);
+    pthread_join(partial_data2, NULL);
 
     printf("All threads completed.\n");
     zmq_ctx_destroy(&context);
-
-    cleanup_step_array();
-
     return 0;
 }

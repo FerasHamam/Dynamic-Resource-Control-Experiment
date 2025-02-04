@@ -11,27 +11,34 @@
 #include <time.h>
 #include <fftw3.h>
 #include <math.h>
+#include <fcntl.h>
+#include <sys/time.h>
 
-#define BASE_PORT 4444
-#define SHARED_IP "IP"
-#define DETICATED_IP "IP"
-#define NUM_STEPS 20
-#define MONITOR_SIZE 100000
-#define LINK_BANDWIDTH 200.0
+// General Parameters (ZMQ)
+#define BASE_PORT 5555
+#define SHARED_IP "10.10.10.3"
+#define DETICATED_IP "10.10.10.6"
+#define NUM_STEPS 50
 #define CHUNK_SIZE 1024 * 1024
+#define DIRECTORY "../data/"
 
-typedef enum
-{
-    LOW,
-    HIGH
-} SocketPriority;
+// Bandwidth prediction parameters
+#define BW_MAX 180
+#define BW_MIN 45
+#define k1  (100.0 / (BW_MAX - BW_MIN))
+#define b1  (-100.0 * BW_MIN / (BW_MAX - BW_MIN))
+#define BANDWIDTH (200 * 1000000)
+#define MONITOR_SIZE 100000
+#define step_prediction 10
 
-typedef enum
-{
-    REDUCED,
-    AUG
-} FilesType;
-
+// Global shared resources
+pthread_mutex_t bandwidth_mutex = PTHREAD_MUTEX_INITIALIZER;
+int step_aug = 0;
+volatile bool stop_congestion_thread = false;
+void *context;
+int prediction_size = 0;
+double elpased_seconds = 0;
+bool stop_logging = false;
 typedef struct
 {
     char **filenames;
@@ -39,25 +46,109 @@ typedef struct
     int thread_index;
 } ThreadArgs;
 
-// Global shared resources
-pthread_mutex_t bandwidth_mutex = PTHREAD_MUTEX_INITIALIZER;
-int aug_size_prediciton_based_on_congestion[NUM_STEPS];
-int step_aug = 0;
-volatile bool stop_congestion_thread = false;
-void *context;
+typedef struct
+{
+    double time;
+    double rate;
+} Prediction;
 
-void calculate_congestion(void *arg)
+Prediction *predictions = NULL;
+
+void get_mbps_rate(const char *interface)
+{
+    pid_t pid = fork();
+    if (pid == -1)
+    {
+        perror("fork failed");
+        return;
+    }
+
+    if (pid == 0)
+    {
+        sleep(1);
+        FILE *log = fopen("log.txt", "w");
+        if (!log)
+        {
+            perror("Unable to open log file");
+            return;
+        }
+
+        char path[256];
+        sprintf(path, "/sys/class/net/%s/statistics/tx_bytes", interface);
+
+        long long tx_bytes_1, tx_bytes_2, tx_diff;
+        double rate;
+        time_t current_time;
+        struct tm *time_info;
+        char time_str[9];
+
+        // Initial tx_bytes
+        FILE *fp = fopen(path, "r");
+        fscanf(fp, "%lld", &tx_bytes_1);
+        fclose(fp);
+
+        while (!stop_congestion_thread)
+        {
+            sleep(2);
+            current_time = time(NULL);
+            if (!stop_logging)
+            {
+                fp = fopen(path, "r");
+                fscanf(fp, "%lld", &tx_bytes_2);
+                fclose(fp);
+                tx_diff = tx_bytes_2 - tx_bytes_1;
+                rate = ((double)tx_diff / 2) * 8 / 1000000.0;
+                time_info = localtime(&current_time);
+                strftime(time_str, sizeof(time_str), "%H:%M:%S", time_info);
+                fprintf(log, "%s,%.2f Mbps\n", time_str, rate);
+                fflush(log);
+                tx_bytes_1 = tx_bytes_2;
+            }
+        }
+        fclose(log);
+    }
+}
+
+int read_predictions(FILE *file)
+{
+    char line[25];
+    int count = 0;
+
+    printf("Reading predictions\n");
+    // Read each line from the file
+    while (fgets(line, sizeof(line), file) != NULL)
+    {
+        // Tokenize the line by the comma
+        char *time_str = strtok(line, ",");
+        char *rate_str = strtok(NULL, ",");
+        if (time_str != NULL && rate_str != NULL)
+        {
+            // Store the time and rate in the array
+            predictions[count].time = atof(time_str);
+            predictions[count].rate = atof(rate_str);
+            count++;
+        }
+    }
+    return count; // Return the number of predictions read
+}
+
+void *calculate_congestion(void *arg)
 {
     int last_processed_step = 0;
+    predictions = malloc(sizeof(Prediction) * MONITOR_SIZE);
+    char *prediction_filename = "predictions.txt";
     while (!stop_congestion_thread)
     {
-        if (step_aug <= last_processed_step || (step_aug % 3 != 0))
+        pthread_mutex_lock(&bandwidth_mutex);
+        if (step_aug <= last_processed_step || (step_aug % step_prediction != 0) || stop_logging)
         {
+            pthread_mutex_unlock(&bandwidth_mutex);
             sleep(5);
             continue;
         }
+        pthread_mutex_unlock(&bandwidth_mutex);
 
-        FILE *prediciton_file = fopen("prediction.txt", "r");
+        FILE *prediciton_file = fopen(prediction_filename, "r");
         if (!prediciton_file)
         {
             char command[1024];
@@ -70,90 +161,50 @@ void calculate_congestion(void *arg)
             }
             while (!prediciton_file)
             {
-                sleep(2);
+                sleep(1);
                 prediciton_file = fopen("prediction.txt", "r");
             }
+            pthread_mutex_lock(&bandwidth_mutex);
+            prediction_size = read_predictions(prediciton_file);
+            pthread_mutex_unlock(&bandwidth_mutex);
         }
-
-        double congestion;
-        // double throughput;
-        fscanf(prediciton_file, "%lf", &congestion);
-        // fscanf(prediciton_file, "%lf", &throughput);
+        remove("log.txt");
         fclose(prediciton_file);
-        remove("prediction.txt");
-
-        int dynamic_progress_threshold = 100;
-        printf("Congestion: %.2f%%\n", congestion);
-        if (congestion > 20.0)
-        {
-            dynamic_progress_threshold = 100 - (congestion - 20);
-        }
-
+        remove(prediction_filename);
+        printf("Processed congestion prediction for step %d\n", step_aug);
+        printf("Prediction size: %d\n", prediction_size);
         pthread_mutex_lock(&bandwidth_mutex);
-        for (int i = step_aug; i < step_aug + 5; i++)
-        {
-            if (i < NUM_STEPS)
-            {
-                aug_size_prediciton_based_on_congestion[i] = dynamic_progress_threshold;
-                continue;
-            }
-            break;
-        }
-        last_processed_step = step_aug + 1;
+        last_processed_step = NUM_STEPS+1;
+        //last_processed_step = step_aug;
+        stop_logging = true;
         pthread_mutex_unlock(&bandwidth_mutex);
     }
     printf("Exiting congestion thread\n");
     pthread_exit(NULL);
 }
 
-bool open_files(char **filenames, int num_files, FILE **files, double *file_sizes, FilesType files_type)
+void connect_socket(void **socket, int thread_index)
 {
-    const char *directory = "../data/";
-    for (int i = 0; i < num_files; i++)
-    {
-        char filepath[256];
-        snprintf(filepath, sizeof(filepath), "%s%s", directory, filenames[i]);
-        files[i] = fopen(filepath, "rb");
-        if (!files[i])
-        {
-            fprintf(stderr, "Failed to open file %s\n", filenames[i]);
-            return false;
-        }
-        fseek(files[i], 0, SEEK_END);
-        file_sizes[i] = ftell(files[i]);
-        fseek(files[i], 0, SEEK_SET);
-    }
-    return true;
-}
-
-void close_files(FILE **files, int num_files, FilesType files_type)
-{
-    for (int i = 0; i < num_files; i++)
-    {
-        fclose(files[i]);
-    }
-}
-
-void *connect_socket(int port, int thread_index)
-{
-    void *sender = zmq_socket(context, ZMQ_PAIR);
     char bind_address[50];
     if (thread_index == 0)
         snprintf(bind_address, sizeof(bind_address), "tcp://%s:%d", DETICATED_IP, BASE_PORT + thread_index);
     else
         snprintf(bind_address, sizeof(bind_address), "tcp://%s:%d", SHARED_IP, BASE_PORT + thread_index);
-    if (zmq_connect(sender, bind_address) != 0)
-    {
-        fprintf(stderr, "Failed to connect to client: %s\n", zmq_strerror(zmq_errno()));
-        return NULL;
-    }
+    *socket = zmq_socket(context, ZMQ_PAIR);
+    int socket_fd = (uintptr_t)*socket; // Cast void* to int
+    zmq_connect(*socket, bind_address);
     printf("Connected to port %d\n", BASE_PORT + thread_index);
-    return sender;
 }
 
-void close_socket(void *socket)
+void recv_data_chunk(void *socket, char **data, size_t *size)
 {
-    zmq_close(socket);
+    zmq_msg_t msg;
+    zmq_msg_init(&msg);
+    zmq_msg_recv(&msg, socket, 0);
+    *size = zmq_msg_size(&msg);
+    *data = malloc(*size);
+    memcpy(*data, zmq_msg_data(&msg), *size);
+    zmq_msg_close(&msg);
 }
 
 void send_data_chunk(void *socket, char *message, size_t size)
@@ -165,48 +216,103 @@ void send_data_chunk(void *socket, char *message, size_t size)
     zmq_msg_close(&msg);
 }
 
-void recv_str_data_chunk(void *socket, char **data, size_t *size)
+int open_file(FILE **file, const char *filename)
 {
-    zmq_msg_t msg;
-    zmq_msg_init(&msg);
-    zmq_msg_recv(&msg, socket, 0);
-    *size = zmq_msg_size(&msg);
-    *data = malloc(*size);
-    memcpy(*data, zmq_msg_data(&msg), *size);
-    zmq_msg_close(&msg);
-}
-
-void recv_double_data_chunk(void *socket, double *double_data)
-{
-    zmq_msg_t msg;
-    zmq_msg_init(&msg);
-    zmq_msg_recv(&msg, socket, 0);
-    *double_data = *(double *)zmq_msg_data(&msg); // Convert the data to double
-    zmq_msg_close(&msg);
-}
-
-void store_bandwidth_and_time(double time_taken, double bytes)
-{
-    pid_t pid = fork();
-
-    if (pid == -1)
+    char filepath[256];
+    snprintf(filepath, sizeof(filepath), "%s%s", DIRECTORY, filename);
+    *file = fopen(filepath, "rb");
+    if (*file == NULL)
     {
-        perror("fork failed");
-        return;
+        perror("Error opening file");
+        return 1;
+    }
+    return 0;
+}
+
+double get_file_percentage(size_t file_size)
+{
+    pthread_mutex_lock(&bandwidth_mutex);
+    double percentage = 100;
+    if (predictions == NULL || prediction_size == 0)
+    {
+        pthread_mutex_unlock(&bandwidth_mutex);
+        return percentage;
     }
 
-    if (pid == 0)
+    double file_size_bits = file_size * 8.0;
+    double bandwidth_bps = BANDWIDTH;
+    double full_bandwidth_estimated_time = file_size_bits / bandwidth_bps;
+    double elapsed = elpased_seconds;
+
+    if (elapsed > predictions[prediction_size - 1].time)
+        elapsed -= predictions[prediction_size - 1].time;
+
+    double total_bandwidth = 0.0;
+    double time_remaining = full_bandwidth_estimated_time; // Time left to cover
+    double total_time_covered = 0.0;                       // Total time we've covered so far
+    int count = 0;
+
+    // Find the starting index in the predictions array based on elapsed time int start_index = 0;
+    int start_index = 0;
+    for (int i = 0; i < prediction_size; i++)
     {
-        FILE *log_file = fopen("log.txt", "a");
-        if (log_file == NULL)
+        printf("Prediction rate: %.2f\n", predictions[i].rate);
+    }
+
+    for (int i = 0; i < prediction_size; i++)
+    {
+        if (predictions[i].time >= elapsed)
         {
-            perror("fopen failed");
-            exit(1); // Exit child process if file cannot be opened
+            start_index = i;
+            break;
         }
-        fprintf(log_file, "%f:%f\n", time_taken, bytes);
-        fclose(log_file);
-        exit(0); // Child process exits after writing
     }
+    while (total_time_covered < full_bandwidth_estimated_time)
+    {
+        int index = (start_index + count) % prediction_size;
+        if (total_time_covered <= full_bandwidth_estimated_time)
+        {
+            total_bandwidth += predictions[index].rate;
+            //printf("Predicted Bandwidth: %.2f Mbps\n", predictions[index].rate);
+            total_time_covered += 2;
+        }
+        count++;
+    }
+    pthread_mutex_unlock(&bandwidth_mutex);
+
+    double avg_predicted_bandwidth = total_bandwidth / count;
+    if (avg_predicted_bandwidth > BW_MAX)
+    {
+        percentage = 100;
+    }
+    else if (avg_predicted_bandwidth >= BW_MIN)
+    {
+        percentage = k1 * avg_predicted_bandwidth + b1;
+    }
+    else
+    {
+        avg_predicted_bandwidth = 0;
+    }
+
+    printf("Predicted Bandwidth: %.2f Mbps\n", avg_predicted_bandwidth);
+    printf("Percentage: %.2f\n", percentage);
+    return percentage;
+}
+
+size_t get_file_size(const char *filename)
+{
+    char filepath[256];
+    snprintf(filepath, sizeof(filepath), "%s%s", DIRECTORY, filename);
+    FILE *file = fopen(filepath, "rb");
+    if (!file)
+    {
+        perror("Error Getting file size");
+        return 0;
+    }
+    fseek(file, 0, SEEK_END);
+    size_t size = ftell(file);
+    fclose(file);
+    return size;
 }
 
 void *send_data(void *arg)
@@ -216,113 +322,90 @@ void *send_data(void *arg)
     char **filenames = args->filenames;
     int num_files = args->num_files;
     int thread_index = args->thread_index;
-
-    void *sender = connect_socket(BASE_PORT, thread_index);
+    time_t start_time = time(NULL);
+    void *sender;
+    connect_socket(&sender, thread_index);
     int step = 0;
     while (step < NUM_STEPS)
     {
-        // Send all filenames at in consecutive order
-        for (int j = 0; j < num_files; j++)
+        time_t current_time = time(NULL);
+        elpased_seconds = difftime(current_time, start_time);
+        double dynamic_progress_threshold = 100;
+        if (thread_index == 1)
         {
-            send_data_chunk(sender, filenames[j], strlen(filenames[j]) + 1);
+            dynamic_progress_threshold = get_file_percentage(get_file_size(filenames[0]) * 3);
         }
-        // End of filenames
-        send_data_chunk(sender, "", 0);
-
-        // Open file for reading
-        FILE *files[num_files];
-        bool read_files[num_files];
-        double total_files_size[num_files];
-        open_files(filenames, num_files, files, total_files_size, thread_index ? AUG : REDUCED);
-
-        // Send file data
-        int file_index = 0;
-        int num_sent_files = 0;
-        size_t chunk_size = CHUNK_SIZE;
-        double bytes_sent_per_file[num_files];
+        // Send file
         for (int i = 0; i < num_files; i++)
         {
-            bytes_sent_per_file[i] = 0;
-            read_files[i] = false;
-        }
-        double dynamic_progress = 100;
-        int iter = 0;
-        while (num_sent_files < num_files)
-        {
-            if (thread_index == 1)
+            size_t file_size = get_file_size(filenames[i]);
+            // Send file name
+            send_data_chunk(sender, filenames[i], strlen(filenames[i]) + 1);
+
+            // Open file for reading
+            FILE *file;
+            if (open_file(&file, filenames[i]))
             {
-                pthread_mutex_lock(&bandwidth_mutex);
-                dynamic_progress = aug_size_prediciton_based_on_congestion[step];
-                pthread_mutex_unlock(&bandwidth_mutex);
-            }
+                zmq_close(sender);
+                return NULL;
+            };
+
+            // Send file data of 1mb chunks
+            size_t sent_bytes = 0;
+            size_t bytes_read;
+            size_t chunk_size = CHUNK_SIZE;
             char *buffer = (char *)malloc(chunk_size);
-            size_t bytes_read = fread(buffer, 1, chunk_size, files[file_index]);
-            bytes_sent_per_file[file_index] += bytes_read;
-            fseek(files[file_index], bytes_sent_per_file[file_index], SEEK_SET);
-            // Send the file data
-            if (bytes_read > 0)
+            while ((bytes_read = fread(buffer, 1, chunk_size, file)) > 0)
             {
-                send_data_chunk(sender, buffer, bytes_read);
-                // Receive Log info
-                double log_message;
-                recv_double_data_chunk(sender, &log_message);
-
-                // calculate bandwidth based on time taken in Mbps
-                if (thread_index == 1)
+                if (bytes_read <= 0)
                 {
-                    store_bandwidth_and_time(log_message, bytes_read);
+                    printf("Failed to read from file %s\n", filenames[i]);
+                    break;
                 }
-
-                // Check if the file has been completely sent based on progress
+                send_data_chunk(sender, buffer, bytes_read);
+                sent_bytes += bytes_read;
                 if (thread_index == 1)
                 {
-                    double progress = ((double)bytes_sent_per_file[file_index] / (double)total_files_size[file_index]) * 100.0f;
-                    if (progress >= dynamic_progress)
+                    double progress = (sent_bytes / (double)file_size) * 100;
+                    if (progress >= dynamic_progress_threshold)
                     {
-                        // Send the close message with 0 bytes
-                        printf("File: %s, Progress: %.2f%%\n", filenames[file_index], progress);
-                        send_data_chunk(sender, "", 0);
-                        read_files[file_index] = true;
-                        num_sent_files++;
+                        break;
                     }
                 }
-                iter++;
-                if ((read_files[file_index]) || (iter % 1 == 0))
-                {
-                    file_index = (file_index + 1) % num_files;
-                    iter = 0;
-                }
-                free(buffer);
             }
-            else
+
+            // Send the close message with 0 bytes
+            send_data_chunk(sender, "", 0);
+
+            // Alert message
+            // if 0 that means the port is complete and no more steps,
+            // if 1 more files to come with the same step,
+            // if 2 move to the next step by incrementing step
+            char *message = (step == NUM_STEPS - 1 && i == num_files - 1) ? "0" : (i < num_files - 1) ? "1"
+                                                                                                      : "2";
+            send_data_chunk(sender, message, strlen(message) + 1);
+
+            // Ack message
+            if (*message == '1')
             {
-                // Send the close message with 0 bytes
-                send_data_chunk(sender, "", 0);
-                read_files[file_index] = true;
-                file_index = (file_index + 1) % num_files;
-                num_sent_files++;
+                continue;
             }
+            char *ack_message;
+            size_t size;
+            recv_data_chunk(sender, &ack_message, &size);
+            printf("Received ack message: %s\n", ack_message);
         }
-        close_files(files, num_files, thread_index ? AUG : REDUCED);
-        // Alert message
-        // if 0 that means the port is complete and no more steps,
-        // if 1 move to the next step by incrementing step
-        bool is_port_complete = (step == NUM_STEPS - 1);
-        send_data_chunk(sender, (is_port_complete) ? "0" : "1", 2);
-        char *ack_message;
-        size_t ack_size;
-        recv_str_data_chunk(sender, &ack_message, &ack_size);
-        printf("Received ack message: %s\n", ack_message);
         // Increment step
         step++;
         if (thread_index == 1)
         {
             pthread_mutex_lock(&bandwidth_mutex);
-            step_aug = step_aug + 1;
+            step_aug++;
             pthread_mutex_unlock(&bandwidth_mutex);
         }
     }
-    close_socket(sender);
+
+    zmq_close(sender);
     pthread_exit(NULL);
     return NULL;
 }
@@ -330,13 +413,8 @@ void *send_data(void *arg)
 int main()
 {
     printf("Starting Sender...\n");
-    for (int i = 0; i < NUM_STEPS; i++)
-    {
-        aug_size_prediciton_based_on_congestion[i] = 100;
-    }
-
     context = zmq_ctx_new();
-    pthread_t reduced_thread, aug_thread, congestion_thread;
+    pthread_t thread1, thread2, congestion_thread;
 
     if (pthread_create(&congestion_thread, NULL, calculate_congestion, NULL) != 0)
     {
@@ -344,39 +422,36 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    // Filenames to be sent
-    char *reduced_filenames[] = {"reduced_data_xgc_16.bin"};
-    char *aug_filenames[] = {"delta_r_xgc_o.bin", "delta_z_xgc_o.bin", "delta_xgc_o.bin"};
-
-    // Create Reduced thread arguments
-    ThreadArgs reduced_args;
-    reduced_args.filenames = reduced_filenames;
-    reduced_args.num_files = 1;
-    reduced_args.thread_index = 0;
-
-    // Create a thread for sending Reduced files
-    if (pthread_create(&reduced_thread, NULL, send_data, &reduced_args) != 0)
+    // Create thread arguments 1
+    ThreadArgs args1;
+    char *filenames1[] = {"reduced_data_xgc_16.bin"};
+    args1.filenames = filenames1;
+    args1.num_files = 1;
+    args1.thread_index = 0;
+    if (pthread_create(&thread1, NULL, send_data, &args1) != 0)
     {
         fprintf(stderr, "Error: Failed to create send file thread\n");
         return EXIT_FAILURE;
     }
 
-    // Create Aug thread arguments
-    ThreadArgs aug_args;
-    aug_args.filenames = aug_filenames;
-    aug_args.num_files = 3;
-    aug_args.thread_index = 1;
+    // Create thread arguments 2
+    ThreadArgs args2;
+    char *filenames2[] = {"delta_r_xgc_o.bin", "delta_z_xgc_o.bin", "delta_xgc_o.bin"};
+    args2.filenames = filenames2;
+    args2.num_files = 3;
+    args2.thread_index = 1;
 
-    // Create a thread for sending Aug files
-    if (pthread_create(&aug_thread, NULL, send_data, &aug_args) != 0)
+    if (pthread_create(&thread2, NULL, send_data, &args2) != 0)
     {
         fprintf(stderr, "Error: Failed to create send file thread\n");
         return EXIT_FAILURE;
     }
 
-    // Wait for the send file thread to finish
-    pthread_join(reduced_thread, NULL);
-    pthread_join(aug_thread, NULL);
+    get_mbps_rate("enp7s0");
+
+    // Wait for threads to finish
+    pthread_join(thread1, NULL);
+    pthread_join(thread2, NULL);
 
     stop_congestion_thread = true;
     pthread_join(congestion_thread, NULL);
