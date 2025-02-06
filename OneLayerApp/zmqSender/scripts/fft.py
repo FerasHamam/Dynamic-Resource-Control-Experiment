@@ -3,10 +3,16 @@ from scipy.fftpack import fft, ifft
 import matplotlib.pyplot as plt
 import os
 from datetime import datetime, timedelta
+import argparse
 
 # Prediction number for file naming
-prediction_number = 3
-log_file = "log.txt"  # Replace with your log file name
+# Parse command line arguments
+parser = argparse.ArgumentParser(description='FFT and IFFT for network transfer rates prediction.')
+parser.add_argument('--prediction_number', type=int, required=True, help='Prediction number for file naming')
+args = parser.parse_args()
+
+prediction_number = args.prediction_number
+log_file = "log.txt"
 prediction_file = "prediction.txt"
 
 def read_transfer_rates(filename):
@@ -152,8 +158,6 @@ reconstructed_rate = apply_ifft(freq_components, dominant_indices)
 
 # Write predictions to a file
 write_predictions_to_file(times, reconstructed_rate, prediction_file)
-
-# print(future_times_seconds[0])
 
 # Plot results
 plot_results(times, rate, magnitudes, frequencies, reconstructed_rate, dominant_indices)

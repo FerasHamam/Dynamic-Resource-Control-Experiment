@@ -18,18 +18,18 @@
 #define BASE_PORT 5555
 #define SHARED_IP "10.10.10.3"
 #define DETICATED_IP "10.10.10.6"
-#define NUM_STEPS 50
+#define NUM_STEPS 100
 #define CHUNK_SIZE 1024 * 1024
 #define DIRECTORY "../data/"
 
 // Bandwidth prediction parameters
-#define BW_MAX 180
-#define BW_MIN 45
-#define k1  (100.0 / (BW_MAX - BW_MIN))
-#define b1  (-100.0 * BW_MIN / (BW_MAX - BW_MIN))
-#define BANDWIDTH (200 * 1000000)
+#define BW_MAX 360
+#define BW_MIN 90
+#define k1 (100.0 / (BW_MAX - BW_MIN))
+#define b1 (-100.0 * BW_MIN / (BW_MAX - BW_MIN))
+#define BANDWIDTH (400 * 1000000)
 #define MONITOR_SIZE 100000
-#define step_prediction 10
+int step_prediction = 35;
 
 // Global shared resources
 pthread_mutex_t bandwidth_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -66,19 +66,12 @@ void get_mbps_rate(const char *interface)
     if (pid == 0)
     {
         sleep(1);
-        FILE *log = fopen("log.txt", "w");
-        if (!log)
-        {
-            perror("Unable to open log file");
-            return;
-        }
-
         char path[256];
         sprintf(path, "/sys/class/net/%s/statistics/tx_bytes", interface);
 
         long long tx_bytes_1, tx_bytes_2, tx_diff;
         double rate;
-        time_t current_time;
+        time_t current_time, start_time;
         struct tm *time_info;
         char time_str[9];
 
@@ -86,7 +79,7 @@ void get_mbps_rate(const char *interface)
         FILE *fp = fopen(path, "r");
         fscanf(fp, "%lld", &tx_bytes_1);
         fclose(fp);
-
+        start_time = time(NULL);
         while (!stop_congestion_thread)
         {
             sleep(2);
@@ -100,12 +93,13 @@ void get_mbps_rate(const char *interface)
                 rate = ((double)tx_diff / 2) * 8 / 1000000.0;
                 time_info = localtime(&current_time);
                 strftime(time_str, sizeof(time_str), "%H:%M:%S", time_info);
+                FILE *log = fopen("log.txt", "a");
                 fprintf(log, "%s,%.2f Mbps\n", time_str, rate);
                 fflush(log);
                 tx_bytes_1 = tx_bytes_2;
+                fclose(log);
             }
         }
-        fclose(log);
     }
 }
 
@@ -134,25 +128,23 @@ int read_predictions(FILE *file)
 
 void *calculate_congestion(void *arg)
 {
+    printf("Starting congestion thread\n");
     int last_processed_step = 0;
     predictions = malloc(sizeof(Prediction) * MONITOR_SIZE);
     char *prediction_filename = "predictions.txt";
+    int prediction_iteration = 1;
     while (!stop_congestion_thread)
-    {
+    {   
+        sleep(1800);
         pthread_mutex_lock(&bandwidth_mutex);
-        if (step_aug <= last_processed_step || (step_aug % step_prediction != 0) || stop_logging)
-        {
-            pthread_mutex_unlock(&bandwidth_mutex);
-            sleep(5);
-            continue;
-        }
+        stop_logging = true;
         pthread_mutex_unlock(&bandwidth_mutex);
 
         FILE *prediciton_file = fopen(prediction_filename, "r");
         if (!prediciton_file)
         {
             char command[1024];
-            snprintf(command, sizeof(command), "%s %s --prediction %d", "python3", "../scripts/fft.py", step_aug);
+            snprintf(command, sizeof(command), "%s %s --prediction %d", "python3", "../scripts/fft.py", prediction_iteration);
             int ret = system(command); // Execute Python script
             if (ret != 0)
             {
@@ -168,16 +160,17 @@ void *calculate_congestion(void *arg)
             prediction_size = read_predictions(prediciton_file);
             pthread_mutex_unlock(&bandwidth_mutex);
         }
-        remove("log.txt");
         fclose(prediciton_file);
-        remove(prediction_filename);
-        printf("Processed congestion prediction for step %d\n", step_aug);
-        printf("Prediction size: %d\n", prediction_size);
+        remove("log.txt");
+        remove("predections.txt");
+
+        printf("Processed congestion prediction Untill step %d\n", step_aug + 1);
         pthread_mutex_lock(&bandwidth_mutex);
-        last_processed_step = NUM_STEPS+1;
-        //last_processed_step = step_aug;
-        stop_logging = true;
+        last_processed_step = step_aug;
+        stop_logging = false;
         pthread_mutex_unlock(&bandwidth_mutex);
+        prediction_iteration++;
+        step_prediction = (step_prediction * prediction_iteration) + 10;
     }
     printf("Exiting congestion thread\n");
     pthread_exit(NULL);
@@ -256,11 +249,6 @@ double get_file_percentage(size_t file_size)
     int start_index = 0;
     for (int i = 0; i < prediction_size; i++)
     {
-        printf("Prediction rate: %.2f\n", predictions[i].rate);
-    }
-
-    for (int i = 0; i < prediction_size; i++)
-    {
         if (predictions[i].time >= elapsed)
         {
             start_index = i;
@@ -273,7 +261,6 @@ double get_file_percentage(size_t file_size)
         if (total_time_covered <= full_bandwidth_estimated_time)
         {
             total_bandwidth += predictions[index].rate;
-            //printf("Predicted Bandwidth: %.2f Mbps\n", predictions[index].rate);
             total_time_covered += 2;
         }
         count++;
@@ -384,7 +371,6 @@ void *send_data(void *arg)
             char *message = (step == NUM_STEPS - 1 && i == num_files - 1) ? "0" : (i < num_files - 1) ? "1"
                                                                                                       : "2";
             send_data_chunk(sender, message, strlen(message) + 1);
-
             // Ack message
             if (*message == '1')
             {
