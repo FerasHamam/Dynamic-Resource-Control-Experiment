@@ -15,6 +15,8 @@
 #define DIRECTORY "../data/"
 
 void *context;
+int index_red = 0, index_aug = 0;
+double time_taken_red[10000] = {0}, time_taken_aug[10000] = {0};
 
 // Function to create directories recursively
 int create_directories(const char *path)
@@ -112,17 +114,13 @@ void send_data_chunk(void *socket, char *message, size_t size)
 void log_time_taken(struct timeval start, struct timeval end, int thread_index)
 {
     double time_taken = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1e6;
-    char log_filepath[256];
-    snprintf(log_filepath, sizeof(log_filepath), "%s/log%d.txt", DIRECTORY, thread_index);
-    FILE *file = fopen(log_filepath, "a");
-    if (file != NULL)
+    if (thread_index == 0)
     {
-        fprintf(file, "%f\n", time_taken);
-        fclose(file);
+        time_taken_red[index_red++] = time_taken;
     }
     else
     {
-        perror("Failed to open log file");
+        time_taken_aug[index_aug++] = time_taken;
     }
 }
 
@@ -148,7 +146,6 @@ void *recv_data(void *arg)
     gettimeofday(&start, NULL);
     while (!is_port_complete)
     {
-
         // Receive filename
         char *filename;
         size_t filename_len;
@@ -193,13 +190,11 @@ void *recv_data(void *arg)
         char *alertMsg;
         size_t alert_size;
         recv_data_chunk(receiver, &alertMsg, &alert_size);
-        // printf("Received alert: %s, %ld\n", alertMsg, alert_size);
         int alert = atoi(alertMsg);
         free(alertMsg);
 
         run_blob_detection_scripts(step);
 
-        // printf("Received alert: %d, %ld\n", alert, alert_size);
         if (alert != 1)
         {
             char ack_message[256];
@@ -215,6 +210,11 @@ void *recv_data(void *arg)
         case 1:
             continue;
         case 2:
+            while (index_aug != index_red)
+            {
+                continue;
+                usleep(1000);
+            }
             step++;
             break;
         default:
@@ -242,6 +242,16 @@ int main()
 
     pthread_join(partial_data1, NULL);
     pthread_join(partial_data2, NULL);
+
+    FILE *log_file = fopen("../data/log.txt", "a");
+    for (int i = 0; i < index_aug; i++)
+    {   
+        double time_taken_per_step = time_taken_aug[i];
+        if(time_taken_red[i] > time_taken_aug[i])
+            time_taken_per_step = time_taken_red[i];
+        fprintf(log_file, "%f\n", time_taken_per_step);
+    }
+    fclose(log_file);
 
     printf("All threads completed.\n");
     zmq_ctx_destroy(&context);
