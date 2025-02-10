@@ -1,4 +1,6 @@
 import os 
+import csv
+
 from datetime import datetime
 import numpy as np
 from ryu.base import app_manager
@@ -13,14 +15,14 @@ from ryu.app.simple_switch_13 import SimpleSwitch13
 # =============================================================================
 # Constants & Configuration
 # =============================================================================
-SLEEP_SEC = 1                       # Collect stats every 1 second
-WINDOW_SECONDS = 60                 # 60 seconds of data
+SLEEP_SEC = 60                       # Collect stats every 1 second
+WINDOW_SECONDS = 1800                 # 60 seconds of data
 REQUIRED_HISTORY = WINDOW_SECONDS // SLEEP_SEC  # 60 samples needed (60/1)
 MAX_HISTORY = REQUIRED_HISTORY      # Keep exactly one window (60 samples)
-PREDICTION_SEGMENT_DURATION = 10    # Analyze a 10-second segment of prediction
+PREDICTION_SEGMENT_DURATION = 60    # Analyze a 10-second segment of prediction
 PREDICTION_SEGMENT_SAMPLES = PREDICTION_SEGMENT_DURATION // SLEEP_SEC  # 10 samples (10/1)
 
-SHARED_LINK_BW = 200                # Link capacity in Mbps
+SHARED_LINK_BW = 400                # Link capacity in Mbps
 
 # Port configuration: only ports in PORT_AFFECTED will have meters installed.
 PORT_AFFECTED = {'s1': ['s1-eth1']}
@@ -36,15 +38,27 @@ class SimpleSwitchWithStats(SimpleSwitch13):
         self.port_names = {}        # {dpid: {port_no: port_name}}
         self.stats_history = {}     # {(dpid, port_no): [ {delta stats}, ... ]}
         self.last_cumulative = {}   # For computing per-interval deltas
-        # Cache for full FFT predictions per port.
-        # Key: (dpid, port_no) -> Value: {'prediction': np.array, 'time': datetime}
-        self.prediction_cache = {}
-        # MAC address learning table for packet-in handling.
-        self.mac_to_port = {}
+        self.prediction_cache = {}  # Cache for FFT predictions per port.
+        self.mac_to_port = {}       # MAC learning table
+        # NEW: Dictionary for CSV writers keyed by (dpid, port_no)
+        self.csv_writers = {}
 
         # Start threads:
         self.monitor_thread = hub.spawn(self._monitor)
         self.prediction_monitor_thread = hub.spawn(self._prediction_monitor)
+
+    def _get_csv_writer(self, dpid, port_no, port_name):
+        key = (dpid, port_no)
+        if key not in self.csv_writers:
+            # Create a filename – you can adjust the naming convention as needed.
+            safe_port_name = port_name.replace(" ", "_")
+            filename = f"port_{dpid}_{port_no}_{safe_port_name}.csv"
+            csv_file = open(filename, 'a', newline='')
+            writer = csv.writer(csv_file)
+            # Write header row if file is newly created.
+            writer.writerow(["timestamp", "rx_pkts", "tx_pkts", "rx_bytes", "tx_bytes"])
+            self.csv_writers[key] = (csv_file, writer)
+        return self.csv_writers[key][1]
 
     # -------------------------------------------------------------------------
     # Switch Event Handlers
@@ -215,6 +229,12 @@ class SimpleSwitchWithStats(SimpleSwitch13):
             })
             if len(self.stats_history[key]) > MAX_HISTORY:
                 self.stats_history[key].pop(0)
+
+            # NEW: Log the port statistics to a CSV file for this port.
+            writer = self._get_csv_writer(switch_id, port_no, port_name)
+            writer.writerow([current_timestamp, delta_rx_pkts, delta_tx_pkts, delta_rx_bytes, delta_tx_bytes])
+            # Optionally flush after each write to ensure the data is written to disk.
+            self.csv_writers[key][0].flush()
 
     # -------------------------------------------------------------------------
     # FFT-Based Prediction & QoS Decision (Every PREDICTION_SEGMENT_DURATION seconds)
