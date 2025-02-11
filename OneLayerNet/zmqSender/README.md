@@ -32,7 +32,25 @@ First, update your package lists and install the necessary dependencies:
 sudo ./setup.sh
 ```
 
-## 4. Build the sender
+## 4. Modify the following
+
+sender.c : line 14
+```sh
+#define SHARED_IP "Dedicated Receiver Interface IP"
+```
+
+sender.c : line 15
+```sh
+#define DETICATED_IP "Shared Receiver Interface IP"
+```
+
+sender.c : line 157 (1 will send through shared, 0 will send through dedicated)
+```sh
+args1.thread_index = 1 or 0;
+```
+
+
+## 5. Build the sender
 ```sh
 cd /path/to/zmqSender
 mkdir build
@@ -47,7 +65,7 @@ Compile the sender c code
 make
 ```
 
-## 5. Run the Sender
+## 6. Run the Sender
 
 Sender
 ```sh
