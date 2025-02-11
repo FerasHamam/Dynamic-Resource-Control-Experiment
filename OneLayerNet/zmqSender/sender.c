@@ -29,13 +29,13 @@ void connect_socket(void **socket, int thread_index)
 {
     char bind_address[50];
     if (thread_index == 0)
-        snprintf(bind_address, sizeof(bind_address), "tcp://%s:%d", DETICATED_IP, BASE_PORT + thread_index);
+        snprintf(bind_address, sizeof(bind_address), "tcp://%s:%d", DETICATED_IP, BASE_PORT);
     else
-        snprintf(bind_address, sizeof(bind_address), "tcp://%s:%d", SHARED_IP, BASE_PORT + thread_index);
+        snprintf(bind_address, sizeof(bind_address), "tcp://%s:%d", SHARED_IP, BASE_PORT);
     *socket = zmq_socket(context, ZMQ_PAIR);
     int socket_fd = (uintptr_t)*socket;
     zmq_connect(*socket, bind_address);
-    printf("Connected to port %d\n", BASE_PORT + thread_index);
+    printf("Connected to port %d\n", BASE_PORT);
 }
 
 void recv_data_chunk(void *socket, char **data, size_t *size)
@@ -149,7 +149,6 @@ int main()
     printf("Starting Sender...\n");
     context = zmq_ctx_new();
     pthread_t thread1;
-    // Filenames to be sent
     // Create thread arguments 1
     ThreadArgs args1;
     char *filenames1[] = {"full_data_xgc.bin"};

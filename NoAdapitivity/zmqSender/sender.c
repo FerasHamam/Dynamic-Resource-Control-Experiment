@@ -11,9 +11,9 @@
 #include <time.h>
 
 #define BASE_PORT 5555
-#define SHARED_IP "IP"
-#define DETICATED_IP "IP"
-#define NUM_STEPS 2
+#define SHARED_IP "10.10.10.3"
+#define DETICATED_IP "10.10.10.6"
+#define NUM_STEPS 100
 #define DIRECTORY "../data/"
 #define CHUNK_SIZE 1024 * 1024
 
@@ -29,21 +29,13 @@ void connect_socket(void **socket, int thread_index)
 {
     char bind_address[50];
     if (thread_index == 0)
-        snprintf(bind_address, sizeof(bind_address), "tcp://%s:%d", DETICATED_IP, BASE_PORT + thread_index);
+        snprintf(bind_address, sizeof(bind_address), "tcp://%s:%d", DETICATED_IP, BASE_PORT);
     else
-        snprintf(bind_address, sizeof(bind_address), "tcp://%s:%d", SHARED_IP, BASE_PORT + thread_index);
+        snprintf(bind_address, sizeof(bind_address), "tcp://%s:%d", SHARED_IP, BASE_PORT);
     *socket = zmq_socket(context, ZMQ_PAIR);
-    int socket_fd = (uintptr_t)*socket; // Cast void* to int
-    if (thread_index == 0)
-    {
-        setsockopt(socket_fd, SOL_SOCKET, SO_BINDTODEVICE, "enp8s0", strlen("enp8s0"));
-    }
-    else
-    {
-        setsockopt(socket_fd, SOL_SOCKET, SO_BINDTODEVICE, "enp7s0", strlen("enp7s0"));
-    }
+    int socket_fd = (uintptr_t)*socket;
     zmq_connect(*socket, bind_address);
-    printf("Connected to port %d\n", BASE_PORT + thread_index);
+    printf("Connected to port %d\n", BASE_PORT);
 }
 
 void recv_data_chunk(void *socket, char **data, size_t *size)
@@ -91,7 +83,8 @@ void *send_data(void *arg)
     connect_socket(&sender, thread_index);
     int step = 0;
     while (step < NUM_STEPS)
-    {
+    {   
+        sleep(40);
         // Send file
         for (int i = 0; i < num_files; i++)
         {
@@ -155,14 +148,13 @@ int main()
 {
     printf("Starting Sender...\n");
     context = zmq_ctx_new();
-    pthread_t thread1, thread2;
-    // Filenames to be sent
+    pthread_t thread1;
     // Create thread arguments 1
     ThreadArgs args1;
-    char *filenames1[] = {"small_portion.bin"};
+    char *filenames1[] = {"full_data_xgc.bin"};
     args1.filenames = filenames1;
     args1.num_files = 1;
-    args1.thread_index = 0;
+    args1.thread_index = 1;
     // Create a thread for sending part1 of full data
     if (pthread_create(&thread1, NULL, send_data, &args1) != 0)
     {
@@ -170,23 +162,8 @@ int main()
         return EXIT_FAILURE;
     }
 
-    // Create thread arguments 2
-    ThreadArgs args2;
-    char *filenames2[] = {"large_portion.bin"};
-    args2.filenames = filenames2;
-    args2.num_files = 1;
-    args2.thread_index = 1;
-
-    // Create a thread for sending part2 of full data
-    if (pthread_create(&thread2, NULL, send_data, &args2) != 0)
-    {
-        fprintf(stderr, "Error: Failed to create send file thread\n");
-        return EXIT_FAILURE;
-    }
-
     // Wait for threads to finish
     pthread_join(thread1, NULL);
-    pthread_join(thread2, NULL);
 
     // Clean up ZeroMQ context
     zmq_ctx_destroy(context);
