@@ -230,14 +230,7 @@ int main()
     int *thread_index1 = malloc(sizeof(int));
     *thread_index1 = 0;
     pthread_create(&partial_data1, NULL, recv_data, thread_index1);
-
-    int *thread_index2 = malloc(sizeof(int));
-    *thread_index2 = 1;
-    pthread_create(&partial_data2, NULL, recv_data, thread_index2);
-
     pthread_join(partial_data1, NULL);
-    pthread_join(partial_data2, NULL);
-
     printf("All threads completed.\n");
     zmq_ctx_destroy(&context);
     return 0;

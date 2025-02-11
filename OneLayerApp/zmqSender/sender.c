@@ -134,8 +134,8 @@ void *calculate_congestion(void *arg)
     char *prediction_filename = "predictions.txt";
     int prediction_iteration = 1;
     while (!stop_congestion_thread)
-    {   
-        sleep(1800);
+    {
+        sleep(800);
         pthread_mutex_lock(&bandwidth_mutex);
         stop_logging = true;
         pthread_mutex_unlock(&bandwidth_mutex);
@@ -238,11 +238,11 @@ double get_file_percentage(size_t file_size)
     double elapsed = elpased_seconds;
 
     if (elapsed > predictions[prediction_size - 1].time)
-        elapsed -= predictions[prediction_size - 1].time;
+        elapsed = fmod(elapsed, predictions[prediction_size - 1].time);
 
     double total_bandwidth = 0.0;
-    double time_remaining = full_bandwidth_estimated_time; // Time left to cover
-    double total_time_covered = 0.0;                       // Total time we've covered so far
+    double time_remaining = full_bandwidth_estimated_time + 2; // Time left to cover
+    double total_time_covered = 0.0;                           // Total time we've covered so far
     int count = 0;
 
     // Find the starting index in the predictions array based on elapsed time int start_index = 0;
@@ -315,8 +315,12 @@ void *send_data(void *arg)
     int step = 0;
     while (step < NUM_STEPS)
     {
-        time_t current_time = time(NULL);
-        elpased_seconds = difftime(current_time, start_time);
+        if (thread_index == 1)
+        {
+            time_t current_time = time(NULL);
+            elpased_seconds = difftime(current_time, start_time);
+            printf("Elapsed time: %.2f seconds\n", elpased_seconds);
+        }
         double dynamic_progress_threshold = 100;
         if (thread_index == 1)
         {

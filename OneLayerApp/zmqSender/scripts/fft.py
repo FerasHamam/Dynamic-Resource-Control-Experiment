@@ -143,7 +143,7 @@ freq_components, magnitudes = apply_fft(rate)
 frequencies = np.fft.fftfreq(len(rate), d=1)
 
 # Calculate threshold and detect dominant frequencies
-threshold = np.mean(magnitudes) + 0.25 * np.std(magnitudes)
+threshold = np.mean(magnitudes) + 0.5 * np.std(magnitudes)
 
 dominant_indices = np.where(magnitudes > threshold)[0]
 
