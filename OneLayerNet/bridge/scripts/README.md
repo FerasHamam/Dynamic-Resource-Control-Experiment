@@ -1,6 +1,6 @@
 # Traffic Control (tc) Configuration Script  
 
-This script configures **traffic control (tc)** using the **HTB (Hierarchical Token Bucket)** discipline on the `enp9s0` network interface **(which should be changed to yout interface name)** to manage bandwidth allocation.
+This script configures **traffic control (tc)** using the **HTB (Hierarchical Token Bucket)** discipline on the `enp9s0` network interface **(which should be changed to your interface name)** to manage bandwidth allocation.
 
 ---
 
