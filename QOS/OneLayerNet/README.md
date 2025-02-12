@@ -8,5 +8,5 @@
 
 1. Instructions for Independent Execution of **zmqSender** and **zmqClient** in their Respective Directories.
 2. Instructions for applying **traffic control (tc)** in bridge directory.
-3. Noise implementations are not included in this directory. Please utilize the provided noise implementations located in other directories, or implement your own as needed.
+3. Noise implementations are not included in this directory. Please utilize the provided noise implementations located in the utils directory, or implement your own as needed.
 4. Please refer to TopologyScripts to limit the link bandwidth in the bridge and/or senders/receivers.
