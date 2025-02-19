@@ -27,6 +27,7 @@ SHARED_LINK_BW = 400                # Link capacity in Mbps
 # Port configuration: only ports in PORT_AFFECTED will have meters installed.
 PORT_AFFECTED = {'s1': ['s1-eth1']}
 PORT_EXCLUDED = {'s1': ['s1-eth3', 's1-eth4']}  # not used now for meters
+SHARED_LINK = "s1-eth3"
 
 # =============================================================================
 # Main Application Class
@@ -40,8 +41,9 @@ class SimpleSwitchWithStats(SimpleSwitch13):
         self.last_cumulative = {}   # For computing per-interval deltas
         self.prediction_cache = {}  # Cache for FFT predictions per port.
         self.mac_to_port = {}       # MAC learning table
-        # NEW: Dictionary for CSV writers keyed by (dpid, port_no)
-        self.csv_writers = {}
+        self.csv_writers = {}       # CSV writer dictionary keyed by (dpid, port_no)
+        # NEW: Track the last time history was cleared.
+        self.last_history_reset = datetime.now()
 
         # Start threads:
         self.monitor_thread = hub.spawn(self._monitor)
@@ -116,7 +118,7 @@ class SimpleSwitchWithStats(SimpleSwitch13):
             for port in ev.msg.body:
                 port_no = port.port_no
                 port_name = self.port_names[dpid][port_no]
-                if port_name in PORT_EXCLUDED.get(switch_name, []):
+                if port_name in PORT_EXCLUDED.get(switch_name, []) and port_name is not SHARED_LINK:
                     continue
                 meter_id = port_no  # using port number as meter id
                 # Calculate rate in kbps (shared limit in Mbps -> kbps)
@@ -244,25 +246,22 @@ class SimpleSwitchWithStats(SimpleSwitch13):
         Every PREDICTION_SEGMENT_DURATION seconds, for each switch, process the prediction for each port,
         extract a segment from the stored full prediction, compute the average predicted throughput,
         and then decide if QoS rules should be applied for that switch.
+        The history and prediction cache are cleared only after WINDOW_SECONDS seconds.
         """
         while True:
             hub.sleep(PREDICTION_SEGMENT_DURATION)
             current_time = datetime.now()
-            # This dictionary will hold predictions grouped by switch (dpid)
+            # Dictionary to hold predictions grouped by switch (dpid)
             switch_predictions = {}
 
             for (dpid, port_no), history in self.stats_history.items():
                 if len(history) < REQUIRED_HISTORY:
-                    continue  # Not enough data
+                    continue  # Not enough data collected yet
 
-                # Get the port name for this port.
                 port_name = self.port_names.get(dpid, {}).get(port_no, f"Port-{port_no}")
-                # Construct the switch name based on dpid.
                 switch_name = f"s{dpid}"
-                # Skip excluded ports.
                 if port_name in PORT_EXCLUDED.get(switch_name, []):
                     continue
-                
                 if switch_name not in PORT_AFFECTED.keys():
                     continue
 
@@ -270,7 +269,7 @@ class SimpleSwitchWithStats(SimpleSwitch13):
                 time_series = np.array([entry["rx_bytes"] for entry in history])
                 port_key = (dpid, port_no)
 
-                # Check the prediction cache.
+                # Use the cached prediction if it's still valid; otherwise, compute a new one.
                 if port_key in self.prediction_cache:
                     cached = self.prediction_cache[port_key]
                     if (current_time - cached['time']).total_seconds() < WINDOW_SECONDS:
@@ -285,15 +284,12 @@ class SimpleSwitchWithStats(SimpleSwitch13):
                     self.prediction_cache[port_key] = {'prediction': full_prediction, 'time': current_time}
                     prediction_time = current_time
 
-                # Determine the sample offset based on elapsed time.
                 elapsed = (current_time - prediction_time).total_seconds()
                 sample_offset = int(elapsed / SLEEP_SEC)
-                # Extract a segment corresponding to the next PREDICTION_SEGMENT_DURATION seconds.
                 if sample_offset + PREDICTION_SEGMENT_SAMPLES <= len(full_prediction):
                     segment = full_prediction[sample_offset: sample_offset + PREDICTION_SEGMENT_SAMPLES]
                 else:
                     segment = full_prediction[-PREDICTION_SEGMENT_SAMPLES:]
-                # Convert predicted delta (bytes) into bits per second.
                 predicted_bps_series = (segment * 8.0) / SLEEP_SEC
                 avg_predicted_bps = np.mean(predicted_bps_series)
 
@@ -302,17 +298,15 @@ class SimpleSwitchWithStats(SimpleSwitch13):
                     dpid, port_name, PREDICTION_SEGMENT_DURATION, avg_predicted_bps
                 )
 
-                # Group predictions by switch.
                 if dpid not in switch_predictions:
                     switch_predictions[dpid] = {'affected': 0.0, 'others': 0.0, 'ports': []}
-                # Save the prediction for debugging if needed.
                 switch_predictions[dpid]['ports'].append((port_name, avg_predicted_bps))
                 if port_name in PORT_AFFECTED.get(switch_name, []):
                     switch_predictions[dpid]['affected'] += avg_predicted_bps
                 else:
                     switch_predictions[dpid]['others'] += avg_predicted_bps
 
-            # Now, process each switch separately.
+            # Process predictions for each switch.
             for dpid, pred in switch_predictions.items():
                 total_predicted_bps = pred['affected'] + pred['others']
                 self.logger.info(
@@ -320,24 +314,55 @@ class SimpleSwitchWithStats(SimpleSwitch13):
                     dpid, pred['affected'], pred['others'], total_predicted_bps, pred['ports']
                 )
                 
-                # Define threshold: 90% of shared link capacity (converted to bps)
                 threshold_bps_90 = 0.9 * (SHARED_LINK_BW * 1e6)
-                threshold_bps_50 = 0.5 * (SHARED_LINK_BW * 1e6)
-                if pred["others"] > threshold_bps_50:
-                    self.logger.info(
-                        "Switch: %s - Predicted throughput (%.2f bps) is above threshold (%.2f bps) -> Trigger QoS",
-                        dpid, total_predicted_bps, threshold_bps_50
-                    )
-                    for (dpid_port, history) in self.stats_history.items():
-                        dpid_curr, port_no = dpid_port
-                        if dpid_curr != dpid:
-                            continue
-                        port_name = self.port_names.get(dpid, {}).get(port_no, f"Port-{port_no}")
-                        if port_name not in PORT_EXCLUDED.get(f"s{dpid}", []):
-                            self.apply_qos_rules(self.datapaths[dpid],
-                                                    port_name,
-                                                    threshold_bps_50)
-                elif total_predicted_bps < threshold_bps_90:
+                threshold_bps_50 = 0.4 * (SHARED_LINK_BW * 1e6)
+                            
+                if pred['affected'] > threshold_bps_50 :
+                    if pred['others'] > threshold_bps_50:
+                        self.logger.info(
+                            "Switch: %s - Predicted throughput (%.2f bps) is above threshold (%.2f bps) -> Trigger QoS",
+                            dpid, total_predicted_bps, threshold_bps_50
+                        )
+                        for (dpid_port, history) in self.stats_history.items():
+                            dpid_curr, port_no = dpid_port
+                            if dpid_curr != dpid:
+                                continue
+                            port_name = self.port_names.get(dpid, {}).get(port_no, f"Port-{port_no}")
+                            if port_name not in PORT_EXCLUDED.get(f"s{dpid}", []):
+                                if port_name not in PORT_AFFECTED.get(f"s{dpid}", []):
+                                    self.logger.info("Q2 Switch: %s - Port: %s - Trigger QoS", dpid, port_name)
+                                    self.apply_qos_rules(self.datapaths[dpid],
+                                                  port_name,
+                                                  0.5 * (SHARED_LINK_BW * 1e6))
+                                else:
+                                    self.logger.info("Q1 Switch: %s - Port: %s - Trigger QoS", dpid, port_name)
+                                    self.apply_qos_rules(self.datapaths[dpid],
+                                                  port_name,
+                                                  0.5 * (SHARED_LINK_BW * 1e6))
+                                                #   threshold_bps_50)
+                    else:
+                        self.logger.info(
+                        "Switch: %s - Predicted throughput (%.2f bps) is below threshold (%.2f bps) -> Trigger QoS",
+                        dpid, total_predicted_bps, threshold_bps_90
+                        )
+                        for (dpid_port, history) in self.stats_history.items():
+                            dpid_curr, port_no = dpid_port
+                            if dpid_curr != dpid:
+                                continue
+                            port_name = self.port_names.get(dpid, {}).get(port_no, f"Port-{port_no}")
+                            if port_name not in PORT_EXCLUDED.get(f"s{dpid}", []):
+                                if port_name not in PORT_AFFECTED.get(f"s{dpid}", []):
+                                    self.logger.info("Q1 Switch: %s - Port: %s - Trigger QoS", dpid, port_name)
+                                    self.apply_qos_rules(self.datapaths[dpid],
+                                                  port_name,
+                                                 (SHARED_LINK_BW * 1e6))
+                                else:
+                                    self.logger.info("Q1 Switch: %s - Port: %s - Trigger QoS", dpid, port_name)
+                                    self.apply_qos_rules(self.datapaths[dpid],
+                                                  port_name,
+                                                 (SHARED_LINK_BW * 1e6))
+                        
+                else:
                     self.logger.info(
                         "Switch: %s - Predicted throughput (%.2f bps) is below threshold (%.2f bps) -> Trigger QoS",
                         dpid, total_predicted_bps, threshold_bps_90
@@ -347,25 +372,29 @@ class SimpleSwitchWithStats(SimpleSwitch13):
                         if dpid_curr != dpid:
                             continue
                         port_name = self.port_names.get(dpid, {}).get(port_no, f"Port-{port_no}")
-                        if port_name in PORT_AFFECTED.get(f"s{dpid}", []):
-                            self.apply_qos_rules(self.datapaths[dpid],
-                                                 port_name,
-                                                 (SHARED_LINK_BW * 1e6))
-                else:
-                    self.logger.info(
-                        "Switch: %s - Predicted throughput (%.2f bps) meets/exceeds threshold (%.2f bps) -> No QoS needed",
-                        dpid, total_predicted_bps, threshold_bps_90
-                    )
-                    for (dpid_port, history) in self.stats_history.items():
-                        dpid_curr, port_no = dpid_port
-                        if dpid_curr != dpid:
-                            continue
-                        port_name = self.port_names.get(dpid, {}).get(port_no, f"Port-{port_no}")
                         if port_name not in PORT_EXCLUDED.get(f"s{dpid}", []):
-                            self.apply_qos_rules(self.datapaths[dpid],
-                                                 port_name,
+                            if port_name not in PORT_AFFECTED.get(f"s{dpid}", []):
+                                self.logger.info("Q1 Switch: %s - Port: %s - Trigger QoS", dpid, port_name)
+                                self.apply_qos_rules(self.datapaths[dpid],
+                                                  port_name,
                                                  (SHARED_LINK_BW * 1e6))
-                    
+                            else:
+                                self.logger.info("Q1 Switch: %s - Port: %s - Trigger QoS", dpid, port_name)
+                                self.apply_qos_rules(self.datapaths[dpid],
+                                                  port_name,
+                                                 (SHARED_LINK_BW * 1e6))
+
+            # NEW: Only clear the history and prediction cache after WINDOW_SECONDS (e.g. 1800 sec) have passed.
+            if (current_time - self.last_history_reset).total_seconds() >= WINDOW_SECONDS+(REQUIRED_HISTORY*SLEEP_SEC):
+                self.logger.info("Clearing stats history and prediction cache after %d seconds", WINDOW_SECONDS)
+                self.stats_history = {}      # Clear all stats history
+                self.prediction_cache = {}   # Clear prediction cache
+                # Reset meters to default for all ports.
+                for dpid, datapath in self.datapaths.items():
+                    for port_no, port_name in self.port_names.get(dpid, {}).items():
+                        if port_name not in PORT_EXCLUDED.get(f"s{dpid}", []):
+                            self.apply_qos_rules(datapath, port_name, SHARED_LINK_BW * 1e6)
+                self.last_history_reset = current_time
 
     # -------------------------------------------------------------------------
     # FFT Prediction with Zero-Padding + IFFT
