@@ -23,13 +23,12 @@
 #define DIRECTORY "../data/"
 
 // Bandwidth prediction parameters
-#define BW_MAX 360
-#define BW_MIN 90
-#define k1 (100.0 / (BW_MAX - BW_MIN))
-#define b1 (-100.0 * BW_MIN / (BW_MAX - BW_MIN))
+#define BW_MAX 360.0
+#define BW_MIN 90.0
+#define k1 (80.0 / (BW_MAX - BW_MIN))
+#define b1 (20.0 - (k1 * BW_MIN))
 #define BANDWIDTH (400 * 1000000)
-#define MONITOR_SIZE 100000
-int step_prediction = 35;
+#define MONITOR_SIZE 10000
 
 // Global shared resources
 pthread_mutex_t bandwidth_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -82,15 +81,20 @@ void get_mbps_rate(const char *interface)
         start_time = time(NULL);
         while (!stop_congestion_thread)
         {
-            sleep(2);
+            sleep(5);
             current_time = time(NULL);
             if (!stop_logging)
             {
                 fp = fopen(path, "r");
                 fscanf(fp, "%lld", &tx_bytes_2);
                 fclose(fp);
+                if (tx_bytes_1 == 0)
+                {
+                    tx_bytes_1 = tx_bytes_2;
+                    continue;
+                }
                 tx_diff = tx_bytes_2 - tx_bytes_1;
-                rate = ((double)tx_diff / 2) * 8 / 1000000.0;
+                rate = ((double)tx_diff / 5) * 8 / 1000000.0;
                 time_info = localtime(&current_time);
                 strftime(time_str, sizeof(time_str), "%H:%M:%S", time_info);
                 FILE *log = fopen("log.txt", "a");
@@ -129,22 +133,22 @@ int read_predictions(FILE *file)
 void *calculate_congestion(void *arg)
 {
     printf("Starting congestion thread\n");
-    int last_processed_step = 0;
     predictions = malloc(sizeof(Prediction) * MONITOR_SIZE);
     char *prediction_filename = "predictions.txt";
     int prediction_iteration = 1;
     while (!stop_congestion_thread)
     {
-        sleep(800);
+        sleep(1800);
         pthread_mutex_lock(&bandwidth_mutex);
         stop_logging = true;
+        stop_congestion_thread = true;
         pthread_mutex_unlock(&bandwidth_mutex);
 
         FILE *prediciton_file = fopen(prediction_filename, "r");
         if (!prediciton_file)
         {
             char command[1024];
-            snprintf(command, sizeof(command), "%s %s --prediction %d", "python3", "../scripts/fft.py", prediction_iteration);
+            snprintf(command, sizeof(command), "%s %s", "python3", "../scripts/fft.py");
             int ret = system(command); // Execute Python script
             if (ret != 0)
             {
@@ -154,23 +158,20 @@ void *calculate_congestion(void *arg)
             while (!prediciton_file)
             {
                 sleep(1);
-                prediciton_file = fopen("prediction.txt", "r");
+                prediciton_file = fopen(prediction_filename, "r");
             }
-            pthread_mutex_lock(&bandwidth_mutex);
-            prediction_size = read_predictions(prediciton_file);
-            pthread_mutex_unlock(&bandwidth_mutex);
         }
-        fclose(prediciton_file);
-        remove("log.txt");
-        remove("predections.txt");
-
-        printf("Processed congestion prediction Untill step %d\n", step_aug + 1);
         pthread_mutex_lock(&bandwidth_mutex);
-        last_processed_step = step_aug;
-        stop_logging = false;
+        prediction_size = read_predictions(prediciton_file);
         pthread_mutex_unlock(&bandwidth_mutex);
-        prediction_iteration++;
-        step_prediction = (step_prediction * prediction_iteration) + 10;
+        printf("Read %d predictions\n", prediction_size);
+        fclose(prediciton_file);
+        // remove("log.txt");
+        // remove("predections.txt");
+        printf("Processed congestion prediction Untill step %d\n", step_aug + 1);
+        // pthread_mutex_lock(&bandwidth_mutex);
+        // stop_logging = true;
+        // pthread_mutex_unlock(&bandwidth_mutex);
     }
     printf("Exiting congestion thread\n");
     pthread_exit(NULL);
@@ -267,14 +268,14 @@ double get_file_percentage(size_t file_size)
     }
     pthread_mutex_unlock(&bandwidth_mutex);
 
-    double avg_predicted_bandwidth = total_bandwidth / count;
+    double avg_predicted_bandwidth = count > 0 ? total_bandwidth / count : BW_MIN;
     if (avg_predicted_bandwidth > BW_MAX)
     {
         percentage = 100;
     }
     else if (avg_predicted_bandwidth >= BW_MIN)
     {
-        percentage = k1 * avg_predicted_bandwidth + b1;
+        percentage = (k1 * avg_predicted_bandwidth) + b1;
     }
     else
     {
@@ -314,7 +315,9 @@ void *send_data(void *arg)
     connect_socket(&sender, thread_index);
     int step = 0;
     while (step < NUM_STEPS)
-    {
+    {   
+        
+        sleep(40);
         if (thread_index == 1)
         {
             time_t current_time = time(NULL);
@@ -406,12 +409,7 @@ int main()
     context = zmq_ctx_new();
     pthread_t thread1, thread2, congestion_thread;
 
-    if (pthread_create(&congestion_thread, NULL, calculate_congestion, NULL) != 0)
-    {
-        fprintf(stderr, "Error: Failed to create congestion thread\n");
-        exit(EXIT_FAILURE);
-    }
-
+    
     // Create thread arguments 1
     ThreadArgs args1;
     char *filenames1[] = {"reduced_data_xgc_16.bin"};
@@ -423,22 +421,27 @@ int main()
         fprintf(stderr, "Error: Failed to create send file thread\n");
         return EXIT_FAILURE;
     }
-
+    
     // Create thread arguments 2
     ThreadArgs args2;
     char *filenames2[] = {"delta_r_xgc_o.bin", "delta_z_xgc_o.bin", "delta_xgc_o.bin"};
     args2.filenames = filenames2;
     args2.num_files = 3;
     args2.thread_index = 1;
-
+    
     if (pthread_create(&thread2, NULL, send_data, &args2) != 0)
     {
         fprintf(stderr, "Error: Failed to create send file thread\n");
         return EXIT_FAILURE;
     }
-
+    
+    sleep(80);
     get_mbps_rate("enp7s0");
-
+    if (pthread_create(&congestion_thread, NULL, calculate_congestion, NULL) != 0)
+    {
+        fprintf(stderr, "Error: Failed to create congestion thread\n");
+        exit(EXIT_FAILURE);
+    }
     // Wait for threads to finish
     pthread_join(thread1, NULL);
     pthread_join(thread2, NULL);
@@ -450,3 +453,6 @@ int main()
 
     return EXIT_SUCCESS;
 }
+
+
+

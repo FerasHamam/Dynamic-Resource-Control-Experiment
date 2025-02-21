@@ -146,7 +146,6 @@ void *recv_data(void *arg)
     while (!is_port_complete)
     {
         struct timeval start, end;
-        gettimeofday(&start, NULL);
 
         // Receive filename
         char *filename;
@@ -157,6 +156,7 @@ void *recv_data(void *arg)
             filename[filename_len - 1] = '\0';
             printf("Received filename: %s\n", filename);
             char *filepath = construct_filepath(filename, step);
+            gettimeofday(&start, NULL);
 
             if (filepath)
             {

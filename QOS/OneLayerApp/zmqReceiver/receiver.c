@@ -111,16 +111,30 @@ void send_data_chunk(void *socket, char *message, size_t size)
     zmq_msg_close(&msg);
 }
 
-void log_time_taken(struct timeval start, struct timeval end, int thread_index)
+void log_time_taken(struct timeval start, struct timeval end, int thread_index, bool next_step)
 {
     double time_taken = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1e6;
     if (thread_index == 0)
     {
-        time_taken_red[index_red++] = time_taken;
+        time_taken_red[index_red] += time_taken;
+        if (next_step)
+        {
+            index_red++;
+        }
     }
     else
     {
-        time_taken_aug[index_aug++] = time_taken;
+        time_taken_aug[index_aug] += time_taken;
+        if (next_step)
+        {   
+            FILE *log_file = fopen("../data/log.txt", "a");
+            double time_taken_per_step = time_taken_aug[index_aug];
+            if (time_taken_red[index_aug] > time_taken_aug[index_aug])
+                time_taken_per_step = time_taken_red[index_aug];
+            fprintf(log_file, "%f\n", time_taken_per_step);
+            fclose(log_file);
+            index_aug++;
+        }
     }
 }
 
@@ -143,7 +157,6 @@ void *recv_data(void *arg)
     int step = 0;
     bool is_port_complete = false;
     struct timeval start, end;
-    gettimeofday(&start, NULL);
     while (!is_port_complete)
     {
         // Receive filename
@@ -152,6 +165,7 @@ void *recv_data(void *arg)
         recv_data_chunk(receiver, &filename, &filename_len);
         if (filename_len > 0)
         {
+            gettimeofday(&start, NULL);
             filename[filename_len - 1] = '\0';
             printf("Received filename: %s\n", filename);
             char *filepath = construct_filepath(filename, step);
@@ -192,7 +206,6 @@ void *recv_data(void *arg)
         recv_data_chunk(receiver, &alertMsg, &alert_size);
         int alert = atoi(alertMsg);
         free(alertMsg);
-
         run_blob_detection_scripts(step);
 
         if (alert != 1)
@@ -200,16 +213,17 @@ void *recv_data(void *arg)
             char ack_message[256];
             snprintf(ack_message, sizeof(ack_message), "step (%d): Received %s", step, thread_index == 0 ? "Reduced data" : "Aug data");
             send_data_chunk(receiver, ack_message, strlen(ack_message) + 1);
-            gettimeofday(&end, NULL);
-            log_time_taken(start, end, thread_index);
-            gettimeofday(&start, NULL);
         }
 
         switch (alert)
         {
         case 1:
+            gettimeofday(&end, NULL);
+            log_time_taken(start, end, thread_index, false);
             continue;
         case 2:
+            gettimeofday(&end, NULL);
+            log_time_taken(start, end, thread_index, true);
             while (index_aug != index_red)
             {
                 continue;
@@ -218,6 +232,8 @@ void *recv_data(void *arg)
             step++;
             break;
         default:
+            gettimeofday(&end, NULL);
+            log_time_taken(start, end, thread_index, true);
             is_port_complete = true;
         }
     }
@@ -243,11 +259,11 @@ int main()
     pthread_join(partial_data1, NULL);
     pthread_join(partial_data2, NULL);
 
-    FILE *log_file = fopen("../data/log.txt", "a");
+    FILE *log_file = fopen("../data/log_final.txt", "a");
     for (int i = 0; i < index_aug; i++)
-    {   
+    {
         double time_taken_per_step = time_taken_aug[i];
-        if(time_taken_red[i] > time_taken_aug[i])
+        if (time_taken_red[i] > time_taken_aug[i])
             time_taken_per_step = time_taken_red[i];
         fprintf(log_file, "%f\n", time_taken_per_step);
     }

@@ -154,7 +154,7 @@ int main()
     char *filenames1[] = {"full_data_xgc.bin"};
     args1.filenames = filenames1;
     args1.num_files = 1;
-    args1.thread_index = 1;
+    args1.thread_index = 0;
     // Create a thread for sending part1 of full data
     if (pthread_create(&thread1, NULL, send_data, &args1) != 0)
     {
