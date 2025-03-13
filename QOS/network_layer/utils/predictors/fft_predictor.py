@@ -7,7 +7,7 @@ from . import Predictor
 # FFT-Based Predictor with Cache and Visualization
 # ------------------------------------------------------------------------------
 class FftPredictor(Predictor):
-    def __init__(self, window_seconds=180, sleep_sec=6):
+    def __init__(self, window_seconds=180, sleep_sec=1):
         """
         :param window_seconds: Total window of history to consider (in seconds).
         :param sleep_sec: Sampling interval (in seconds).

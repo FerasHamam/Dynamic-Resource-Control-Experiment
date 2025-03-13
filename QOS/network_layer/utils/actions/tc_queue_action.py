@@ -37,6 +37,13 @@ class TCQueueAction(Action):
             cmd = f"sudo tc class change dev {interface} parent 1:1 classid 1:20 htb rate 200mbit ceil {ceil_value}mbit"
             self.run_command(cmd)
             self.last_ceil = ceil_value
+    
+    def update_tc_class_v2(self, interface, value,cls):
+        """Update the tc class 1:{cls} ceiling if its value changes."""
+        print(f"Updating class 1:{cls} ceil to {value}mbit")
+        cmd = f"sudo tc class change dev {interface} parent 1:1 classid 1:{cls} htb rate {value}mbit ceil {value}mbit"
+        self.run_command(cmd)
+    
 
     # Implementation of the Action interface
     def install(self, port):

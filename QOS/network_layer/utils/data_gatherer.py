@@ -70,7 +70,7 @@ class DataGatherer:
     def get_data_averaged(self, n):
         """
         Returns the data averaged over every n data points.
-        For example, if data = [1,2,3,4,5,6] and n=, it returns [1.5, 3.5, 5.5].
+        For example, if data = [1,2,3,4,5,6] and n=2, it returns [1.5, 3.5, 5.5].
         """
         with self.lock:
             data_copy = list(self.data)
