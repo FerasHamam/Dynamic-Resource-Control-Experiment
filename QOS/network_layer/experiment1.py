@@ -25,7 +25,7 @@ if __name__ == "__main__":
     switch_port = "s1-eth3"
     
     # Initialize data gatherer and predictor
-    gatherer = DataGatherer(interface, max_seconds=25)
+    gatherer = DataGatherer(interface, max_seconds=5)
     predictor = NextSecondPredictor()
     action = TCQueueAction()
     action.setup_tc(switch_port)
@@ -36,12 +36,12 @@ if __name__ == "__main__":
     
     try:        
         while True:
-            data = gatherer.get_data_averaged(5)        
+            data = gatherer.get_data()        
             if len(data) >= 5:
                 print (f"Data: {data}")
                 prediction = predictor.predict(data)
                 print(f"Predicted RX bytes for the next second: {prediction}")
-                if prediction < 200:
+                if prediction == 0:
                     action.update_tc_class_20(switch_port, 400)
                 else:
                     action.update_tc_class_20(switch_port, 200)
