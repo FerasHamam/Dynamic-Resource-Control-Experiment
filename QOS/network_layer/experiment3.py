@@ -13,11 +13,13 @@ def run_experiment() -> None:
     """
     # Network configuration
     ports: List[str] = ["s1-eth1", "s1-eth2"]  # Example port names; adjust as needed
-    switch_port = "s1-eth3"  # Port to apply TC actions to
-    
+    EXCLUDED_PORT = "s1-eth1"
+    SWITCH_PORT = "s1-eth3"  # Port to apply TC actions to
+    DATA_SLEEP = 800 
+    STEP_SIZE = 1 # 60 
     # Initialize TC action handler
     action = TCQueueAction()
-    action.setup_tc(switch_port)
+    action.setup_tc(SWITCH_PORT)
     
     # Initialize data gatherers
     gatherers: Dict[str, DataGatherer] = {port: DataGatherer(port, max_seconds=180) for port in ports}
@@ -27,17 +29,16 @@ def run_experiment() -> None:
         gatherer.start()
     
     # Allow data gathering to run for a sufficient duration initially
-    time.sleep(180)  # Wait for some initial data
+    time.sleep(DATA_SLEEP)  # Wait for some initial data
     
     try:
         # Main experiment loop
         while True:
             
             # Sum data for all ports except one
-            excluded_port = "s1-eth1"
             summed_data = None
             for port in ports:
-                if port != excluded_port:
+                if port != EXCLUDED_PORT:
                     port_data = gatherers[port].get_data()
                     if summed_data is None:
                         summed_data = np.array(port_data)
@@ -55,9 +56,8 @@ def run_experiment() -> None:
             try:
                 # Get prediction for future values
                 prediction = predictor.predict(summed_data)
-                step_size = 1 # 60 
-                for i in range(0, len(prediction), step_size):
-                    next_second_prediction = prediction[i:i+step_size] if len(prediction) >= i+step_size else prediction[i:]
+                for i in range(0, len(prediction), STEP_SIZE):
+                    next_second_prediction = prediction[i:i+STEP_SIZE] if len(prediction) >= i+STEP_SIZE else prediction[i:]
                     
                     if len(next_second_prediction) == 0:
                         print("Error: Prediction length is zero, resetting pointer and creating new prediction.")
@@ -74,17 +74,17 @@ def run_experiment() -> None:
                     # Apply TC action with appropriate ceiling based on prediction
                     if bandwidth_mbits > 200:  # Example threshold, adjust as needed
                         # Lower bandwidth prediction, set lower ceiling
-                        action.update_tc_class_20(switch_port, 200)
+                        action.update_tc_class_20(SWITCH_PORT, 200)
                     else:
                         # Higher bandwidth prediction, set higher ceiling
-                        action.update_tc_class_20(switch_port, 400) # max(20, int(bandwidth_mbits * 1.5)))
+                        action.update_tc_class_20(SWITCH_PORT, 400) # max(20, int(bandwidth_mbits * 1.5)))
                     
                     # Optionally generate a visualization periodically
                     if np.random.random() < 0.1:  # 10% chance to create a plot
                         predictor.plot_prediction(summed_data, filename=f"fft_prediction_{int(time.time())}.png")
                     
                     # Sleep before next prediction cycle
-                    time.sleep(step_size)  # Adjust as needed for your use case
+                    time.sleep(STEP_SIZE)  # Adjust as needed for your use case
                 
             except ValueError as ve:
                 print(f"Error predicting for summed data: {ve}")
