@@ -31,31 +31,33 @@ def run_experiment() -> None:
     """
     # Network configuration
     ports: List[str] = ["s1-eth1", "s1-eth2"]  # Example port names; adjust as needed
-    switch_port = "s1-eth3"  # Port to apply TC actions to
+    SWITCH_PORT = "s1-eth3"  # Port to apply TC actions to
+    EXCLUDED_PORT = "s1-eth1"
+    SECONDS = 800
+    STEP_SIZE = 60
     
     # Initialize TC action handler
     action = TCQueueAction()
-    action.setup_tc(switch_port)
+    action.setup_tc(SWITCH_PORT)
     
     # Initialize data gatherers
-    gatherers: Dict[str, DataGatherer] = {port: DataGatherer(port, max_seconds=180) for port in ports}
+    gatherers: Dict[str, DataGatherer] = {port: DataGatherer(port, max_seconds=SECONDS) for port in ports}
 
     # Start data gathering for all ports
     for gatherer in gatherers.values():
         gatherer.start()
     
     # Allow data gathering to run for a sufficient duration initially
-    time.sleep(180)  # Wait for some initial data
+    time.sleep(SECONDS)  # Wait for some initial data
     
     try:
         # Main experiment loop
         while True:
             
             # Sum data for all ports except one
-            excluded_port = "s1-eth1"
             summed_data = None
             for port in ports:
-                if port != excluded_port:
+                if port != EXCLUDED_PORT:
                     port_data = gatherers[port].get_data()
                     if summed_data is None:
                         summed_data = np.array(port_data)
@@ -67,7 +69,7 @@ def run_experiment() -> None:
                 continue
 
             # Initialize FFT predictor
-            predictor = FftPredictor(window_seconds=180, sleep_sec=1)
+            predictor = FftPredictor(window_seconds=SECONDS, sleep_sec=1)
 
             # Calculate prediction for the summed data
             try:
@@ -75,7 +77,7 @@ def run_experiment() -> None:
                 prediction = predictor.predict(summed_data)
                 
                 # Take only the next 60 seconds of prediction
-                next_minute_prediction = prediction[:60] if len(prediction) >= 60 else prediction
+                next_minute_prediction = prediction[:STEP_SIZE] if len(prediction) >= STEP_SIZE else prediction
                 
                 # Calculate average predicted bandwidth for the next minute
                 avg_predicted_bandwidth = np.mean(next_minute_prediction)
@@ -88,10 +90,10 @@ def run_experiment() -> None:
                 # Apply TC action with appropriate ceiling based on prediction
                 if bandwidth_mbits > 200:  # Example threshold, adjust as needed
                     # Lower bandwidth prediction, set lower ceiling
-                    action.update_tc_class_20(switch_port, 200)
+                    action.update_tc_class_20(SWITCH_PORT, 200)
                 else:
                     # Higher bandwidth prediction, set higher ceiling
-                    action.update_tc_class_20(switch_port, 400) # max(20, int(bandwidth_mbits * 1.5)))
+                    action.update_tc_class_20(SWITCH_PORT, 400) # max(20, int(bandwidth_mbits * 1.5)))
                 
                 # Optionally generate a visualization periodically
                 if np.random.random() < 0.1:  # 10% chance to create a plot
@@ -101,7 +103,7 @@ def run_experiment() -> None:
                 print(f"Error predicting for summed data: {ve}")
                 
             # Sleep before next prediction cycle
-            time.sleep(60)  # Adjust as needed for your use case
+            time.sleep(STEP_SIZE)  # Adjust as needed for your use case
             
     except KeyboardInterrupt:
         print("Experiment interrupted by user.")
