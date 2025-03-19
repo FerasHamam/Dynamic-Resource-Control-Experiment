@@ -14,10 +14,10 @@ class NextSecondPredictor(Predictor):
         
         # Consider the last 5 data points
         recent_data = port_data[-5:]
-        # Calculate differences between consecutive data points
-        differences = [recent_data[i+1] - recent_data[i] for i in range(len(recent_data)-1)]
-        # Calculate the average difference
-        avg_diff = sum(differences) / len(differences)
+        # # Calculate differences between consecutive data points
+        # differences = [recent_data[i+1] - recent_data[i] for i in range(len(recent_data)-1)]
+        # # Calculate the average difference
+        prediction = sum(recent_data) / len(recent_data)
         # Prediction is the last known value plus the average difference
-        prediction = recent_data[-1] + avg_diff
+        # prediction = recent_data[-1] + avg_diff
         return prediction
