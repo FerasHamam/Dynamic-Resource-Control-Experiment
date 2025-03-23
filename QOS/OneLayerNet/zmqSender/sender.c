@@ -10,7 +10,6 @@
 #include <stdbool.h>
 #include <sys/time.h>
 
-
 #define BASE_PORT 5555
 #define SHARED_IP "10.10.10.4"
 #define DETICATED_IP "10.10.10.8"
@@ -80,6 +79,23 @@ int open_file(FILE **file, const char *filename)
     return 0;
 }
 
+// Get file size
+size_t get_file_size(const char *filename)
+{
+    char filepath[256];
+    snprintf(filepath, sizeof(filepath), "%s%s", DIRECTORY, filename);
+    FILE *file = fopen(filepath, "rb");
+    if (!file)
+    {
+        perror("Error getting file size");
+        return 0;
+    }
+    fseek(file, 0, SEEK_END);
+    size_t size = ftell(file);
+    fclose(file);
+    return size;
+}
+
 void *send_data(void *arg)
 {
     // Read args
@@ -108,19 +124,23 @@ void *send_data(void *arg)
                 return NULL;
             };
 
+            
+
             // Send file data of 1mb chunks
+            size_t file_size = get_file_size(filenames[i]);
             size_t bytes_read;
-            size_t chunk_size = CHUNK_SIZE;
-            char *buffer = (char *)malloc(chunk_size);
-            while ((bytes_read = fread(buffer, 1, chunk_size, file)) > 0)
-            {
-                if (bytes_read <= 0)
-                {
-                    printf("Failed to read from file %s\n", filenames[i]);
-                    break;
-                }
-                send_data_chunk(sender, buffer, bytes_read);
-            }
+            size_t point_size = 8;
+            size_t total_points = file_size / point_size;
+            size_t points_to_send = total_points;
+            size_t bytes_to_read = points_to_send * point_size;
+            char *buffer = (char *)malloc(bytes_to_read);
+            size_t bytes_actually_read = fread(buffer, 1, bytes_to_read, file);
+            fclose(file);
+            printf("File: %s, Size: %zu bytes (%zu points)\n",
+                   filenames[i], file_size, total_points);
+            printf("Sending %zu points (%zu bytes, %.2f%%)\n",
+                   points_to_send, bytes_to_read, (float)points_to_send / total_points * 100);
+            send_data_chunk(sender, buffer, bytes_actually_read);
 
             // Send the close message with 0 bytes
             send_data_chunk(sender, "", 0);
@@ -151,7 +171,7 @@ void *send_data(void *arg)
 
         double elapsed = seconds_diff + microseconds_diff;
         double remaining = 60.0 - elapsed;
-        if(remaining < 0)
+        if (remaining < 0)
             remaining = 0;
         printf("Step %d took %f seconds, sleeping for %f seconds\n", step, elapsed, remaining);
         sleep_ms(remaining * 1000);
