@@ -12,8 +12,8 @@ def run_experiment() -> None:
     Then applies TC actions based on the average predicted bandwidth for the next second.
     """
     # Network configuration
-    ports: List[str] = ["s1-eth1", "s1-eth2"]  # Example port names; adjust as needed
-    switch_port = "s1-eth3"  # Port to apply TC actions to
+    ports: List[str] = ["enp8s0", "enp7s0", "enp10s0", "enp11s0"]  # Example port names; adjust as needed
+    switch_port = "enp9s0"  # Port to apply TC actions to
     
     # Initialize TC action handler
     action = TCQueueAction()
@@ -27,14 +27,14 @@ def run_experiment() -> None:
         gatherer.start()
     
     # Allow data gathering to run for a sufficient duration initially
-    time.sleep(180)  # Wait for some initial data
+    time.sleep(1200)  # Wait for some initial data
     
     try:
         # Main experiment loop
         while True:
             
             # Sum data for all ports except one
-            excluded_port = "s1-eth1"
+            excluded_port = "enp8s0"
             summed_data = None
             for port in ports:
                 if port != excluded_port:
@@ -49,7 +49,7 @@ def run_experiment() -> None:
                 continue
 
             # Initialize FFT predictor
-            predictor = FftPredictor(window_seconds=180, sleep_sec=1)
+            predictor = FftPredictor(window_seconds=60, sleep_sec=1)
 
             # Calculate prediction for the summed data
             try:
@@ -72,9 +72,9 @@ def run_experiment() -> None:
                     bandwidth_mbits = (avg_predicted_bandwidth * 8) / 1000000
                     
                     # Define max_bandwidth and coefficients for the linear equation
-                    max_bandwidth = 400  # Example max bandwidth in Mbit/sec, adjust as needed
-                    k1 = 0.5  # Example coefficient, adjust as needed
-                    b = 200  # Example intercept, adjust as needed
+                    max_bandwidth = 370  # Example max bandwidth in Mbit/sec, adjust as needed
+                    k1 = 1  # Example coefficient, adjust as needed
+                    b = 0  # Example intercept, adjust as needed
 
                     # Apply TC action with appropriate ceiling based on prediction
                     if bandwidth_mbits <= max_bandwidth / 2:
@@ -89,7 +89,7 @@ def run_experiment() -> None:
                         predictor.plot_prediction(summed_data, filename=f"fft_prediction_{int(time.time())}.png")
                     
                     # Sleep before next prediction cycle
-                    time.sleep(1)  # Adjust as needed for your use case
+                    time.sleep(1200)  # Adjust as needed for your use case
                 
             except ValueError as ve:
                 print(f"Error predicting for summed data: {ve}")

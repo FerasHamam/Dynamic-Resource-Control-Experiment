@@ -21,8 +21,8 @@ from utils.predictors.next_second_predictor import NextSecondPredictor
 from utils.actions.tc_queue_action import TCQueueAction
 
 if __name__ == "__main__":
-    interface = "s1-eth1"
-    switch_port = "s1-eth3"
+    interface = "enp8s0"
+    switch_port = "enp9s0"
     
     # Initialize data gatherer and predictor
     gatherer = DataGatherer(interface, max_seconds=5)

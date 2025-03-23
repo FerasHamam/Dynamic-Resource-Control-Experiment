@@ -11,8 +11,8 @@
 #include <time.h>
 
 #define BASE_PORT 5555
-#define SHARED_IP "10.10.10.3"
-#define DETICATED_IP "10.10.10.6"
+#define SHARED_IP "10.10.10.4"
+#define DETICATED_IP "10.10.10.8"
 #define NUM_STEPS 100
 #define DIRECTORY "../data/"
 #define CHUNK_SIZE 1024 * 1024

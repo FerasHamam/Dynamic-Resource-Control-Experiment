@@ -8,14 +8,15 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <stdbool.h>
-#include <time.h>
+#include <sys/time.h>
+
 
 #define BASE_PORT 5555
-#define SHARED_IP "10.10.10.3"
-#define DETICATED_IP "10.10.10.6"
-#define NUM_STEPS 100
+#define SHARED_IP "10.10.10.4"
+#define DETICATED_IP "10.10.10.8"
+#define NUM_STEPS 60
 #define DIRECTORY "../data/"
-#define CHUNK_SIZE 1024 * 1024
+#define CHUNK_SIZE 16 * 1024 * 1024
 
 void *context;
 typedef struct
@@ -24,6 +25,14 @@ typedef struct
     int num_files;
     int thread_index;
 } ThreadArgs;
+
+void sleep_ms(double milliseconds)
+{
+    struct timespec ts;
+    ts.tv_sec = (long)(milliseconds / 1000.0);
+    ts.tv_nsec = (long)((milliseconds - ((long)(milliseconds / 1000.0) * 1000.0)) * 1000000.0);
+    nanosleep(&ts, NULL);
+}
 
 void connect_socket(void **socket, int thread_index)
 {
@@ -82,15 +91,15 @@ void *send_data(void *arg)
     void *sender;
     connect_socket(&sender, thread_index);
     int step = 0;
+    struct timeval start, end;
     while (step < NUM_STEPS)
-    {   
-        sleep(40);
+    {
         // Send file
         for (int i = 0; i < num_files; i++)
         {
             // Send file name
             send_data_chunk(sender, filenames[i], strlen(filenames[i]) + 1);
-
+            gettimeofday(&start, NULL);
             // Open file for reading
             FILE *file;
             if (open_file(&file, filenames[i]))
@@ -136,6 +145,17 @@ void *send_data(void *arg)
             printf("Received ack message: %s\n", ack_message);
         }
         // Increment step
+        gettimeofday(&end, NULL);
+        double seconds_diff = (double)(end.tv_sec - start.tv_sec);
+        double microseconds_diff = (double)(end.tv_usec - start.tv_usec) / 1000000.0;
+
+        double elapsed = seconds_diff + microseconds_diff;
+        double remaining = 60.0 - elapsed;
+        if(remaining < 0)
+            remaining = 0;
+        printf("Step %d took %f seconds, sleeping for %f seconds\n", step, elapsed, remaining);
+        sleep_ms(remaining * 1000);
+        printf("\n--- Step %d completed ---\n", step);
         step++;
     }
 

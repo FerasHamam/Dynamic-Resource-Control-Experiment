@@ -13,9 +13,9 @@ def setup_tc():
         "sudo tc class add dev enp9s0 parent 1: classid 1:1 htb rate 400mbit ceil 400mbit",
         "sudo tc class add dev enp9s0 parent 1:1 classid 1:10 htb rate 200mbit ceil 400mbit",
         "sudo tc class add dev enp9s0 parent 1:1 classid 1:20 htb rate 200mbit ceil 200mbit",
-        "sudo tc filter add dev enp9s0 protocol ip parent 1:0 u32 match ip dst 10.10.10.3 flowid 1:10",
-        "sudo tc filter add dev enp9s0 protocol ip parent 1:0 u32 match ip dst 10.10.10.4 flowid 1:20",
-        "sudo tc filter add dev enp9s0 protocol ip parent 1:0 u32 match ip dst 10.10.10.8 flowid 1:20"
+        "sudo tc filter add dev enp9s0 protocol ip parent 1:0 u32 match ip dst 10.10.10.4 flowid 1:10",
+        "sudo tc filter add dev enp9s0 protocol ip parent 1:0 u32 match ip dst 10.10.10.5 flowid 1:20",
+        "sudo tc filter add dev enp9s0 protocol ip parent 1:0 u32 match ip dst 10.10.10.6 flowid 1:20"
     ]
     for cmd in commands:
         run_command(cmd)
@@ -62,4 +62,4 @@ def monitor_interface(interface, threshold=5):
 
 if __name__ == "__main__":
     setup_tc()
-    monitor_interface("enp7s0")
+    monitor_interface("enp8s0")

@@ -20,7 +20,6 @@ include_directories(${CMAKE_SOURCE_DIR})
 # Create executable
 add_executable(receiver
     receiver.c
-    step_manager.c
 )
 
 # Link libraries

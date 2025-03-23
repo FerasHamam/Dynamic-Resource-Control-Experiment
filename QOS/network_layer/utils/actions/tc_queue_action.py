@@ -23,9 +23,10 @@ class TCQueueAction(Action):
             f"sudo tc class add dev {interface} parent 1: classid 1:1 htb rate 400mbit ceil 400mbit",
             f"sudo tc class add dev {interface} parent 1:1 classid 1:10 htb rate 200mbit ceil 400mbit",
             f"sudo tc class add dev {interface} parent 1:1 classid 1:20 htb rate 200mbit ceil 200mbit",
-            f"sudo tc filter add dev {interface} protocol ip parent 1:0 u32 match ip dst 10.10.10.3 flowid 1:10",
-            f"sudo tc filter add dev {interface} protocol ip parent 1:0 u32 match ip dst 10.10.10.4 flowid 1:20",
-            f"sudo tc filter add dev {interface} protocol ip parent 1:0 u32 match ip dst 10.10.10.8 flowid 1:20"
+            f"sudo tc filter add dev {interface} protocol ip parent 1:0 u32 match ip dst 10.10.10.4 flowid 1:10",
+            f"sudo tc filter add dev {interface} protocol ip parent 1:0 u32 match ip dst 10.10.10.5 flowid 1:20",
+            f"sudo tc filter add dev {interface} protocol ip parent 1:0 u32 match ip dst 10.10.10.6 flowid 1:20",
+            f"sudo tc filter add dev {interface} protocol ip parent 1:0 u32 match ip dst 10.10.10.10 flowid 1:20"
         ]
         for cmd in commands:
             self.run_command(cmd)

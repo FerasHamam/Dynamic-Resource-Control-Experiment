@@ -30,9 +30,9 @@ def run_experiment() -> None:
     Then applies TC actions based on the average predicted bandwidth for the next minute.
     """
     # Network configuration
-    ports: List[str] = ["s1-eth1", "s1-eth2"]  # Example port names; adjust as needed
-    SWITCH_PORT = "s1-eth3"  # Port to apply TC actions to
-    EXCLUDED_PORT = "s1-eth1"
+    ports: List[str] = ["enp8s0", "enp7s0", "enp10s0", "enp11s0"]  # Example port names; adjust as needed
+    SWITCH_PORT = "enp9s0"  # Port to apply TC actions to
+    EXCLUDED_PORT = "enp8s0"
     SECONDS = 800
     STEP_SIZE = 60
     

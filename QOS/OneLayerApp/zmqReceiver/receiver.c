@@ -126,7 +126,7 @@ void log_time_taken(struct timeval start, struct timeval end, int thread_index, 
     {
         time_taken_aug[index_aug] += time_taken;
         if (next_step)
-        {   
+        {
             FILE *log_file = fopen("../data/log.txt", "a");
             double time_taken_per_step = time_taken_aug[index_aug];
             if (time_taken_red[index_aug] > time_taken_aug[index_aug])
@@ -156,7 +156,7 @@ void *recv_data(void *arg)
 
     int step = 0;
     bool is_port_complete = false;
-    struct timeval start, end;
+    struct timeval start, end, chunk_time_start, chunk_time_end;
     while (!is_port_complete)
     {
         // Receive filename
@@ -177,22 +177,23 @@ void *recv_data(void *arg)
                 {
                     // Receive file chunks
                     bool is_file_complete = false;
-                    while (!is_file_complete)
-                    {
-                        char *data;
-                        size_t chunk_size;
-                        recv_data_chunk(receiver, &data, &chunk_size);
-                        if (chunk_size == 0)
-                        {
-                            is_file_complete = true;
-                            free(data);
-                        }
-                        else
-                        {
-                            write_data_to_file(file, data, chunk_size);
-                            free(data);
-                        }
-                    }
+                    char *data;
+                    size_t chunk_size;
+                    
+                    // monitor data chunk time
+                    gettimeofday(&chunk_time_start, NULL);
+                    recv_data_chunk(receiver, &data, &chunk_size);
+                    gettimeofday(&chunk_time_end, NULL);
+                    double chunk_time_taken = (chunk_time_end.tv_sec - chunk_time_start.tv_sec) + (chunk_time_end.tv_usec - chunk_time_start.tv_usec) / 1e6;
+                    printf("step (%d): Received chunk of size %ld, time taken: %f\n", step, chunk_size, chunk_time_taken);
+
+                    // send time taken
+                    char time_str[32];
+                    snprintf(time_str, sizeof(time_str), "%f", chunk_time_taken);
+                    send_data_chunk(receiver, time_str, strlen(time_str) + 1);
+                    write_data_to_file(file, data, chunk_size);
+                    // Free the received data
+                    free(data);
                     fclose(file);
                 }
                 free(filepath);

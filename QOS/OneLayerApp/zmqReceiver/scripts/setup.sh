@@ -18,7 +18,7 @@ source ./venv/bin/activate
 pip install numpy matplotlib scipy opencv-python-headless
 
 # Disable firewall in ports 4444 to 4448 in order for the Socket to communicate
-for port in {4444..4448}; do
+for port in {5555..5556}; do
     sudo firewall-cmd --zone=public --add-port=${port}/tcp --permanent
 done
 sudo firewall-cmd --reload

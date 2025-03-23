@@ -23,19 +23,8 @@ run_iperf3_periodically() {
     local first_iteration=true
 
     while true; do
-        if $first_iteration; then
-            # Sleep for a fixed interval before the first test, logging each second
-            echo "$(date): Waiting for interval before first iperf3 test..." | tee -a "$logfile" 2>&1
-            for ((i = 1; i <= interval; i++)); do
-                echo "1.00:0" | tee -a "$logfile" 2>&1
-                sleep 1
-            done
-            first_iteration=false
-        fi
-
         echo "$(date): Running iperf3 test..." | tee -a "$logfile" 2>&1
 
-        # Record start time before iperf3
         local start_time=$(date +%s.%N)
 
         iperf3 -c "$server_ip" -p "$port" -n "$size" | grep 'sec' | sed '$d' | sed '$d' | awk '
