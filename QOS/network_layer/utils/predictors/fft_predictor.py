@@ -95,11 +95,11 @@ class FftPredictor(Predictor):
         
         # Create the plot.
         plt.figure(figsize=(10, 6))
-        plt.plot(t_hist, historical_data, label="Historical Data", marker='o')
+        plt.plot(t_hist, historical_data, label="Historical Gathered Data", marker='o')
         plt.plot(t_pred, prediction, label="Predicted Future", marker='x')
         plt.title("FFT-Based Prediction Visualization")
         plt.xlabel("Sample Number")
-        plt.ylabel("Value")
+        plt.ylabel("Total Bytes Transferred per Second")
         plt.legend()
         plt.grid(True)
         plt.savefig(filename)
