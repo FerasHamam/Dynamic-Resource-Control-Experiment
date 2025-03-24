@@ -13,21 +13,18 @@ def run_experiment() -> None:
     """
     # Network configuration
     ports: List[str] = ["s1-eth1", "s1-eth2"]  # Example port names; adjust as needed
-    switch_port = "s1-eth3"  # Port to apply TC actions to
-    
-    # prioritize Port
-    prioritized_port = "s1-eth1"
-    
-    # Bandwidth allocation parameters
-    total_bandwidth = 400  # Total bandwidth in Mbit
-    min_bandwidth = 50     # Minimum bandwidth for any port in Mbit
-    
+    SWITCH_PORT = "s1-eth3"  # Port to apply TC actions to
+    PRIORITIZED_PORT = "s1-eth1"    
+    TOTAL_BANDWIDTH = 400  # Total bandwidth in Mbit
+    MIN_BANDWIDTH = 50     # Minimum bandwidth for any port in Mbit
+    GATHERDED_WINDOW = 1200
+    FAVORING_FACTOR = 0.3
     # Initialize TC action handler
     action = TCQueueAction()
-    action.setup_tc(switch_port)
+    action.setup_tc(SWITCH_PORT)
     
     # Initialize data gatherers
-    gatherers: Dict[str, DataGatherer] = {port: DataGatherer(port, max_seconds=180) for port in ports}
+    gatherers: Dict[str, DataGatherer] = {port: DataGatherer(port, max_seconds=GATHERDED_WINDOW) for port in ports}
 
     # Start data gathering for all ports
     for gatherer in gatherers.values():
@@ -39,11 +36,11 @@ def run_experiment() -> None:
     start_time = time.time()
     
     # Initialize bandwidth allocations
-    bandwidth_allocations: Dict[str, float] = {port: total_bandwidth / len(ports) for port in ports}
+    bandwidth_allocations: Dict[str, float] = {port: TOTAL_BANDWIDTH / len(ports) for port in ports}
     
     try:
         # Main experiment loop
-        while time.time() - start_time < 180:
+        while time.time() - start_time < GATHERDED_WINDOW:
             for port, gatherer in gatherers.items():
                 data = gatherer.get_data()
                 bandwidth = data[-1] if data else 0
@@ -96,41 +93,42 @@ def run_experiment() -> None:
                 if total_file_size > 0:
                     # Base allocation based on file size proportion
                     base_allocations = {
-                        port: (size / total_file_size) * (total_bandwidth - min_bandwidth * len(ports))
+                        port: (size / total_file_size) * (TOTAL_BANDWIDTH - MIN_BANDWIDTH * len(ports))
                         for port, size in avg_file_sizes.items()
                     }
 
                     # Add minimum bandwidth guarantee
                     bandwidth_allocations = {
-                        port: base_allocations[port] + min_bandwidth
+                        port: base_allocations[port] + MIN_BANDWIDTH
                         for port in ports
                     }
                     
                     # Apply favoring factor to the selected port (increase by 30%)
-                    if prioritized_port in bandwidth_allocations:
+                    if PRIORITIZED_PORT in bandwidth_allocations:
                         # Calculate how much extra bandwidth to give to the favored port
-                        extra_bandwidth = bandwidth_allocations[prioritized_port] * 0.3
+                        extra_bandwidth = bandwidth_allocations[PRIORITIZED_PORT] * FAVORING_FACTOR
                         
                         # Distribute the reduction among other ports proportionally
-                        other_ports = [p for p in ports if p != prioritized_port]
+                        other_ports = [p for p in ports if p != PRIORITIZED_PORT]
                         if other_ports:
                             reduction_per_port = extra_bandwidth / len(other_ports)
                             for port in other_ports:
                                 # Ensure we don't go below minimum bandwidth
-                                max_reduction = max(0, bandwidth_allocations[port] - min_bandwidth)
+                                max_reduction = max(0, bandwidth_allocations[port] - MIN_BANDWIDTH)
                                 actual_reduction = min(reduction_per_port, max_reduction)
                                 bandwidth_allocations[port] -= actual_reduction
                                 extra_bandwidth -= actual_reduction
                             
                             # Add the accumulated extra bandwidth to the favored port
-                            bandwidth_allocations[prioritized_port] += extra_bandwidth
+                            bandwidth_allocations[PRIORITIZED_PORT] += extra_bandwidth
+                # TODO: Implement a solution for the current problem with bandwidth allocation strategy
                 
-                # Apply the bandwidth allocations using TC
+                # how would tc work on each port since we have only 2 classes (1:20 and 1:30)?
                 for port, allocation in bandwidth_allocations.items():
                     print(f"Setting bandwidth for {port}: {allocation:.2f} Mbit")
                     # For simplicity, we're applying the allocation to class 1:20
                     # In a real scenario, you might want to map each port to a specific TC class
-                    action.update_tc_class_20(switch_port, int(allocation))
+                    action.update_tc_class_20(SWITCH_PORT, int(allocation))
                     
                     # Sleep briefly to allow TC changes to take effect
                     time.sleep(0.5)
