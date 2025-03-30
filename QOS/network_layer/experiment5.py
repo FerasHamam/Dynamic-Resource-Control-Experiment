@@ -19,9 +19,17 @@ def run_experiment() -> None:
     MIN_BANDWIDTH = 50     # Minimum bandwidth for any port in Mbit
     GATHERDED_WINDOW = 1200
     FAVORING_FACTOR = 0.3
+    IP_CONFIGS = {
+        "enp7s0": ["10.10.10.4","10", "400", "400"],
+        "enp8s0": ["10.10.10.5","20", "200", "400"],
+        "enp9s0": ["10.10.10.6","30", "200", "400"],
+        "enp10s0": ["10.10.10.10","30", "200", "400"],
+    }
+
     # Initialize TC action handler
     action = TCQueueAction()
-    action.setup_tc(SWITCH_PORT)
+    commands = [ action.return_command(SWITCH_PORT,clssid,rate,ceil,ip) for ip,clssid,rate,ceil in IP_CONFIGS.values()]
+    action.setup_tc_exp5(SWITCH_PORT,commands)
     
     # Initialize data gatherers
     gatherers: Dict[str, DataGatherer] = {port: DataGatherer(port, max_seconds=GATHERDED_WINDOW) for port in ports}
@@ -120,16 +128,11 @@ def run_experiment() -> None:
                                 extra_bandwidth -= actual_reduction
                             
                             # Add the accumulated extra bandwidth to the favored port
-                            bandwidth_allocations[PRIORITIZED_PORT] += extra_bandwidth
-                # TODO: Implement a solution for the current problem with bandwidth allocation strategy
-                
-                # how would tc work on each port since we have only 2 classes (1:20 and 1:30)?
+                            bandwidth_allocations[PRIORITIZED_PORT] += extra_bandwidth                
                 for port, allocation in bandwidth_allocations.items():
                     print(f"Setting bandwidth for {port}: {allocation:.2f} Mbit")
-                    # For simplicity, we're applying the allocation to class 1:20
-                    # In a real scenario, you might want to map each port to a specific TC class
-                    action.update_tc_class_20(SWITCH_PORT, int(allocation))
-                    
+                    action.update_tc_class_v2(SWITCH_PORT, int(allocation), IP_CONFIGS[port][1])
+
                     # Sleep briefly to allow TC changes to take effect
                     time.sleep(0.5)
             
