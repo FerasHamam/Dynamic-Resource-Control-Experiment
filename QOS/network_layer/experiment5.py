@@ -12,24 +12,24 @@ def run_experiment() -> None:
     Then applies TC actions based on the calculated bandwidth allocations.
     """
     # Network configuration
-    ports: List[str] = ["s1-eth1", "s1-eth2"]  # Example port names; adjust as needed
-    SWITCH_PORT = "s1-eth3"  # Port to apply TC actions to
-    PRIORITIZED_PORT = "s1-eth1"    
+    ports: List[str] = ["enp8s0", "enp7s0", "enp10s0", "enp11s0"]  # Example port names; adjust as needed
+    SWITCH_PORT = "enp9s0"  # Port to apply TC actions to
+    PRIORITIZED_PORT = "enp8s0"    
     TOTAL_BANDWIDTH = 400  # Total bandwidth in Mbit
     MIN_BANDWIDTH = 50     # Minimum bandwidth for any port in Mbit
     GATHERDED_WINDOW = 1200
     FAVORING_FACTOR = 0.3
     IP_CONFIGS = {
-        "enp7s0": ["10.10.10.4","10", "400", "400"],
-        "enp8s0": ["10.10.10.5","20", "200", "400"],
-        "enp9s0": ["10.10.10.6","30", "200", "400"],
-        "enp10s0": ["10.10.10.10","30", "200", "400"],
+        "enp7s0": ["10.10.10.4","10", "100", "400"],
+        "enp8s0": ["10.10.10.5","20", "100", "400"],
+        "enp11s0": ["10.10.10.6","30", "100", "400"],
+        "enp10s0": ["10.10.10.10","40", "100", "400"],
     }
 
     # Initialize TC action handler
     action = TCQueueAction()
     commands = [ action.return_command(SWITCH_PORT,clssid,rate,ceil,ip) for ip,clssid,rate,ceil in IP_CONFIGS.values()]
-    action.setup_tc_exp5(SWITCH_PORT,commands)
+    action.setup_tc(SWITCH_PORT,commands)
     
     # Initialize data gatherers
     gatherers: Dict[str, DataGatherer] = {port: DataGatherer(port, max_seconds=GATHERDED_WINDOW) for port in ports}
@@ -49,6 +49,7 @@ def run_experiment() -> None:
     try:
         # Main experiment loop
         while time.time() - start_time < GATHERDED_WINDOW:
+            print(time.time() - start_time)
             for port, gatherer in gatherers.items():
                 data = gatherer.get_data()
                 bandwidth = data[-1] if data else 0
@@ -93,16 +94,16 @@ def run_experiment() -> None:
             # Calculate bandwidth allocations based on file sizes if we have data
             if all(len(sizes) > 0 for sizes in file_sizes.values()):
                 # Calculate average file size for each port
-                avg_file_sizes = {port: np.mean(sizes) if sizes else 0 for port, sizes in file_sizes.items()}
-                print("Current average file sizes:", avg_file_sizes)
+                max_file_size = {port: np.max(sizes) if sizes else 0 for port, sizes in file_sizes.items()}
+                print("Current average file sizes:", max_file_size)
                 
                 # Calculate bandwidth allocations using a weighted approach
-                total_file_size = sum(avg_file_sizes.values())
+                total_file_size = sum(max_file_size.values())
                 if total_file_size > 0:
                     # Base allocation based on file size proportion
                     base_allocations = {
                         port: (size / total_file_size) * (TOTAL_BANDWIDTH - MIN_BANDWIDTH * len(ports))
-                        for port, size in avg_file_sizes.items()
+                        for port, size in max_file_size.items()
                     }
 
                     # Add minimum bandwidth guarantee
@@ -126,12 +127,20 @@ def run_experiment() -> None:
                                 actual_reduction = min(reduction_per_port, max_reduction)
                                 bandwidth_allocations[port] -= actual_reduction
                                 extra_bandwidth -= actual_reduction
-                            
+                           
                             # Add the accumulated extra bandwidth to the favored port
-                            bandwidth_allocations[PRIORITIZED_PORT] += extra_bandwidth                
+                            bandwidth_allocations[PRIORITIZED_PORT] += extra_bandwidth  
+                        
+                sum_bandwidth = sum(bandwidth_allocations.values())
+                left_out_bandwidth = (TOTAL_BANDWIDTH - sum_bandwidth) / len(ports)
+                print(f"Sum of bandwidth allocations: {sum_bandwidth:.2f} Mbit, total bandwidth: {TOTAL_BANDWIDTH:.2f} Mbit")
+                if sum_bandwidth < TOTAL_BANDWIDTH:
+                    # Normalize to total bandwidth
+                    bandwidth_allocations = {port: allocation + left_out_bandwidth for port, allocation in bandwidth_allocations.items()} 
+                                 
                 for port, allocation in bandwidth_allocations.items():
                     print(f"Setting bandwidth for {port}: {allocation:.2f} Mbit")
-                    action.update_tc_class_v2(SWITCH_PORT, int(allocation), IP_CONFIGS[port][1])
+                    action.update_tc_class_v3(SWITCH_PORT, int(allocation), 400, IP_CONFIGS[port][1])
 
                     # Sleep briefly to allow TC changes to take effect
                     time.sleep(0.5)
@@ -139,9 +148,9 @@ def run_experiment() -> None:
             time.sleep(1)
             
         # Final report
-        avg_file_sizes = {port: np.mean(sizes) if sizes else 0 for port, sizes in file_sizes.items()}
+        max_file_size = {port: np.max(sizes) if sizes else 0 for port, sizes in file_sizes.items()}
         print("\nExperiment Summary:")
-        print("Average file sizes:", avg_file_sizes)
+        print("Average file sizes:", max_file_size)
         print("Final bandwidth allocations:", bandwidth_allocations)
             
     except KeyboardInterrupt:

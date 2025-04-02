@@ -43,18 +43,6 @@ def run_experiment() -> None:
         
         # Main experiment loop
         while True:
-            # Get the last 5 seconds of data for the excluded port
-            ex_port_data = gatherers[EXCLUDED_PORT].get_data()
-            if len(ex_port_data) <= 5:
-                print(f"Error: No data available for excluded port {EXCLUDED_PORT}.")
-            
-            nsp_result = nsp_predictor.predict(ex_port_data[-5:])
-            if nsp_result <= 0:
-                print(f"Next second prediction for excluded port {EXCLUDED_PORT}: {nsp_result} bytes/sec")
-                action.update_tc_class_20(switch_port, 400)
-                time.sleep(5)
-                continue
-            
             # Sum data for all ports except one
             summed_data = None
             for port in ports:
@@ -100,10 +88,25 @@ def run_experiment() -> None:
                     # Optionally generate a visualization periodically
                     if np.random.random() < 0.1:  # 10% chance to create a plot
                         fft_predictor.plot_prediction(summed_data, filename=f"fft_prediction_{int(time.time())}.png")
+                      
+                    # Get the last 5 seconds of data for the excluded port
+                    start_time = time.time()
+                    end_time = start_time
+                    while STEP_SIZE - (end_time - start_time) > 0.1:
+                        ex_port_data = gatherers[EXCLUDED_PORT].get_data()
+                        if len(ex_port_data) < 5:
+                            print(f"Error: No data available for excluded port {EXCLUDED_PORT}.")
+                        
+                        nsp_result = nsp_predictor.predict(ex_port_data[-5:])
+                        if nsp_result <= 0:
+                            print(f"Next second prediction for excluded port {EXCLUDED_PORT}: {nsp_result} bytes/sec")
+                            action.update_tc_class_20(switch_port, 400)
+                        else:
+                            action.update_tc_class_20(switch_port, assigned_bandwidth)
+                        time.sleep(5)
+                        end_time = time.time()
                     
-                    # Sleep before next prediction cycle
-                    time.sleep(STEP_SIZE)  # Adjust as needed for your use case
-                
+                    # Sleep before next prediction cycle                
             except ValueError as ve:
                 print(f"Error predicting for summed data: {ve}")
                 

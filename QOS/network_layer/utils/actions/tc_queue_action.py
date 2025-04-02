@@ -18,17 +18,18 @@ class TCQueueAction(Action):
         """Return the command to set up the tc class."""
         
         commands = [
-            f"sudo tc class add dev {interface} parent 1:1 classid {clssid} htb rate {rate}mbit ceil {ceil}mbit",
-            f"sudo tc filter add dev {interface} protocol ip parent 1:0 u32 match ip dst {ip} flowid {clssid}"
+            f"sudo tc class add dev {interface} parent 1:1 classid 1:{clssid} htb rate {rate}mbit ceil {ceil}mbit",
+            f"sudo tc filter add dev {interface} protocol ip parent 1:0 u32 match ip dst {ip} flowid 1:{clssid}"
         ]
         return commands
         
-    def setup_tc_exp5(self, interface,setup_commands):
+    def setup_tc_exp5(self, interface, setup_commands):
         """Set up the initial traffic control (tc) rules on the given interface for experiment 5."""
         print("Setting up initial traffic control rules for experiment 5...")
         commands = [
             f"sudo tc qdisc del dev {interface} root",
-            f"sudo tc qdisc add dev {interface} root handle 1: htb default 1",
+            f'sudo tc qdisc add dev {interface} root handle 1: htb default 40',
+            f"sudo tc qdisc add dev {interface} parent 1: classid 1:1 htb rate 400mbit ceil 400mbit",
             setup_commands
         ]
         
@@ -69,6 +70,12 @@ class TCQueueAction(Action):
         """Update the tc class 1:{cls} ceiling if its value changes."""
         print(f"Updating class 1:{cls} ceil to {value}mbit")
         cmd = f"sudo tc class change dev {interface} parent 1:1 classid 1:{cls} htb rate {value}mbit ceil {value}mbit"
+        self.run_command(cmd)
+        
+    def update_tc_class_v3(self, interface, min_value, max_value, cls):
+        """Update the tc class 1:{cls} ceiling if its value changes."""
+        print(f"Updating class 1:{cls} rate to {min_value}mbit")
+        cmd = f"sudo tc class change dev {interface} parent 1:1 classid 1:{cls} htb rate {min_value}mbit ceil {max_value}mbit"
         self.run_command(cmd)
     
 
