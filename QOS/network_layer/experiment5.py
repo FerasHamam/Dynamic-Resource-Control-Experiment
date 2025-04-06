@@ -28,8 +28,9 @@ def run_experiment() -> None:
 
     # Initialize TC action handler
     action = TCQueueAction()
-    commands = [ action.return_command(SWITCH_PORT,clssid,rate,ceil,ip) for ip,clssid,rate,ceil in IP_CONFIGS.values()]
-    action.setup_tc(SWITCH_PORT,commands)
+    # commands = [ action.return_command(SWITCH_PORT,clssid,rate,ceil,ip) for ip,clssid,rate,ceil in IP_CONFIGS.values()]
+    # action.setup_tc(SWITCH_PORT,commands)
+    action.setup_tc_exp5(SWITCH_PORT)
     
     # Initialize data gatherers
     gatherers: Dict[str, DataGatherer] = {port: DataGatherer(port, max_seconds=GATHERDED_WINDOW) for port in ports}
