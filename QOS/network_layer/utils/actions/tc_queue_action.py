@@ -65,17 +65,17 @@ class TCQueueAction(Action):
             f"sudo tc qdisc del dev {interface} root",
             f"sudo tc qdisc add dev {interface} root handle 1: htb default 1",
             f"sudo tc class add dev {interface} parent 1: classid 1:1 htb rate 400mbit ceil 400mbit",
-            f"sudo tc class add dev {interface} parent 1:1 classid 1:10 htb rate 200mbit ceil 400mbit",
-            f"sudo tc class add dev {interface} parent 1:1 classid 1:20 htb rate 200mbit ceil 400mbit",
-            f"sudo tc class add dev {interface} parent 1:1 classid 1:30 htb rate 200mbit ceil 400mbit",
-            f"sudo tc class add dev {interface} parent 1:1 classid 1:40 htb rate 200mbit ceil 400mbit",
-            f"sudo tc class add dev {interface} parent 1:1 classid 1:50 htb rate 200mbit ceil 400mbit",
+            f"sudo tc class add dev {interface} parent 1:1 classid 1:10 htb rate 80mbit ceil 400mbit",
+            f"sudo tc class add dev {interface} parent 1:1 classid 1:20 htb rate 80mbit ceil 400mbit",
+            f"sudo tc class add dev {interface} parent 1:1 classid 1:30 htb rate 80mbit ceil 400mbit",
+            f"sudo tc class add dev {interface} parent 1:1 classid 1:40 htb rate 80mbit ceil 400mbit",
+            f"sudo tc class add dev {interface} parent 1:1 classid 1:50 htb rate 80mbit ceil 400mbit",
             
             f"sudo tc filter add dev {interface} protocol ip parent 1:0 u32 match ip dst 10.10.10.4 flowid 1:10",
             f"sudo tc filter add dev {interface} protocol ip parent 1:0 u32 match ip dst 10.10.10.5 flowid 1:20",
             f"sudo tc filter add dev {interface} protocol ip parent 1:0 u32 match ip dst 10.10.10.6 flowid 1:30",
             f"sudo tc filter add dev {interface} protocol ip parent 1:0 u32 match ip dst 10.10.10.10 flowid 1:40",
-            f"sudo tc filter add dev {interface} protocol ip parent 1:0 u32 match ip dst 10.10.10.10 flowid 1:50"
+            f"sudo tc filter add dev {interface} protocol ip parent 1:0 u32 match ip dst 10.10.10.12 flowid 1:50"
             
         ]
         for cmd in commands:
