@@ -70,18 +70,18 @@ def run_experiment() -> None:
                 nsp_result = nsp_predictor.predict(ex_port_data)
                 prediction = fft_predictor.predict(summed_data)
                 for i in range(0, len(prediction), STEP_SIZE):
-                    nsp_prediction = nsp_result[i:i+STEP_SIZE] if len(nsp_result) >= i+STEP_SIZE else nsp_result[i:]
+                    # nsp_prediction = nsp_result[i:i+STEP_SIZE] if len(nsp_result) >= i+STEP_SIZE else nsp_result[i:]
                     fft_prediction = prediction[i:i+STEP_SIZE] if len(prediction) >= i+STEP_SIZE else prediction[i:]
                     
-                    if len(fft_prediction) == 0 or len(nsp_prediction) == 0:
+                    if len(fft_prediction) == 0:
                         print("Error: Prediction length is zero, resetting pointer and creating new prediction.")
                         break
                     
-                    avg_nsp_predicted_bandwidth = np.mean(nsp_prediction)
-                    if avg_nsp_predicted_bandwidth <= 0.125*MAX_BANDWIDTH:
-                        action.update_tc_class_20(SWITCH_PORT, 400)
-                        time.sleep(STEP_SIZE)
-                        continue
+                    # avg_nsp_predicted_bandwidth = np.mean(nsp_prediction)
+                    # if avg_nsp_predicted_bandwidth <= 0.125*MAX_BANDWIDTH:
+                    #     action.update_tc_class_20(SWITCH_PORT, 400)
+                    #     time.sleep(STEP_SIZE)
+                    #     continue
                     # Calculate average predicted bandwidth for the next second
                     avg_fft_predicted_bandwidth = np.mean(fft_prediction)
                     print(f"Average predicted bandwidth for next second: {avg_fft_predicted_bandwidth} bytes/sec")
@@ -104,7 +104,7 @@ def run_experiment() -> None:
                                         
                     # Get the last 5 seconds of data for the excluded port
                     for inner_step_count in range(STEP_SIZE / 5):
-                        ex_port_data = nsp_prediction[i + (5*inner_step_count) : i + (5*(inner_step_count+1))] if len(nsp_result) >= i + (5*(inner_step_count+1)) else nsp_result[i:]
+                        ex_port_data = nsp_result[i + (5*inner_step_count) : i + (5*(inner_step_count+1))] if len(nsp_result) >= i + (5*(inner_step_count+1)) else nsp_result[i:]
                         avg_nsp_predicted_bandwidth = np.mean(ex_port_data)
                         if avg_nsp_predicted_bandwidth <= 5:
                             action.update_tc_class_20(SWITCH_PORT, 400)    
