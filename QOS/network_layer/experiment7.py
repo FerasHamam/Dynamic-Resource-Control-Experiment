@@ -106,7 +106,7 @@ def run_experiment() -> None:
                     for inner_step_count in range(STEP_SIZE / 5):
                         ex_port_data = nsp_result[i + (5*inner_step_count) : i + (5*(inner_step_count+1))] if len(nsp_result) >= i + (5*(inner_step_count+1)) else nsp_result[i:]
                         avg_nsp_predicted_bandwidth = np.mean(ex_port_data)
-                        if avg_nsp_predicted_bandwidth <= 5:
+                        if avg_nsp_predicted_bandwidth <= (0.10*MAX_BANDWIDTH)* 1000000/8  :
                             action.update_tc_class_20(SWITCH_PORT, 400)    
                         time.sleep(5)
                 
