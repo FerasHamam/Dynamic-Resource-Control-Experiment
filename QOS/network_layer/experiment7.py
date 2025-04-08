@@ -103,7 +103,7 @@ def run_experiment() -> None:
                         fft_predictor.plot_prediction(summed_data, filename=f"fft_prediction_{int(time.time())}.png")
                                         
                     # Get the last 5 seconds of data for the excluded port
-                    for inner_step_count in range(STEP_SIZE / 5):
+                    for inner_step_count in range(int(STEP_SIZE / 5)):
                         ex_port_data = nsp_result[i + (5*inner_step_count) : i + (5*(inner_step_count+1))] if len(nsp_result) >= i + (5*(inner_step_count+1)) else nsp_result[i:]
                         avg_nsp_predicted_bandwidth = np.mean(ex_port_data)
                         if avg_nsp_predicted_bandwidth <= (0.10*MAX_BANDWIDTH)* 1000000/8  :
