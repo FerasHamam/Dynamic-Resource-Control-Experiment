@@ -75,7 +75,7 @@ def run_experiment() -> None:
                     bandwidth_mbits = (avg_predicted_bandwidth * 8) / 1000000
                     
                     # Define max_bandwidth and coefficients for the linear equation
-                    assigned_bandwidth = min(assigned_bandwidth, MAX_BANDWIDTH / 2)
+                    assigned_bandwidth = min(bandwidth_mbits, MAX_BANDWIDTH / 2)
 
                     action.update_tc_class_20(switch_port, assigned_bandwidth)
                     
