@@ -18,7 +18,7 @@ def run_experiment() -> None:
     GATHERING_WINDOW = 1200
     STEP_SIZE = 60
     MAX_BANDWIDTH = 370  # Example max bandwidth in Mbit/sec, adjust as needed
-    P = 0.5 # P [0,1] for priority
+    P = 0 # P [0,1] for priority
     K1 = 1  # Example coefficient, adjust as needed
     B = 0  # Example intercept, adjust as needed
     # Initialize TC action handler
@@ -75,7 +75,7 @@ def run_experiment() -> None:
                     bandwidth_mbits = (avg_predicted_bandwidth * 8) / 1000000
                     
                     # Define max_bandwidth and coefficients for the linear equation
-                    assigned_bandwidth = P * bandwidth_mbits 
+                    assigned_bandwidth = (1 if P == 0 else  P * bandwidth_mbits)
 
                     action.update_tc_class_20(switch_port, assigned_bandwidth)
                     
