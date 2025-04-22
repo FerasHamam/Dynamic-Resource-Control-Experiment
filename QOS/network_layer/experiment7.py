@@ -18,6 +18,7 @@ def run_experiment() -> None:
     EXCLUDED_PORT = "enp8s0"
     GATHERING_WINDOW = 1200
     STEP_SIZE = 60
+    coefficient = 0.5 # Coefficient for bandwidth calculation [0,1]
     MAX_BANDWIDTH = 370  # Example max bandwidth in Mbit/sec, adjust as needed
     K1 = 1  # Example coefficient, adjust as needed
     B = 0  # Example intercept, adjust as needed
@@ -91,10 +92,8 @@ def run_experiment() -> None:
                     bandwidth_mbits = (avg_fft_predicted_bandwidth * 8) / 1000000
                     
                     # Apply TC action with appropriate ceiling based on prediction
-                    if bandwidth_mbits <= MAX_BANDWIDTH / 2:
-                        assigned_bandwidth = bandwidth_mbits
-                    else:
-                        assigned_bandwidth = K1 * bandwidth_mbits / MAX_BANDWIDTH + B
+                    
+                    assigned_bandwidth = coefficient * bandwidth_mbits
 
                     action.update_tc_class_20(SWITCH_PORT, assigned_bandwidth)
                     
