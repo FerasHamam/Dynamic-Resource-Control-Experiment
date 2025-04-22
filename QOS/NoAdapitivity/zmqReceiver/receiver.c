@@ -146,7 +146,7 @@ void *recv_data(void *arg)
     while (!is_port_complete)
     {
         struct timeval start, end;
-
+        
         // Receive filename
         char *filename;
         size_t filename_len;
@@ -156,11 +156,11 @@ void *recv_data(void *arg)
             filename[filename_len - 1] = '\0';
             printf("Received filename: %s\n", filename);
             char *filepath = construct_filepath(filename, step);
-            gettimeofday(&start, NULL);
-
+            
             if (filepath)
             {
                 FILE *file = fopen(filepath, "ab");
+                gettimeofday(&start, NULL);
                 if (file)
                 {
                     // Receive file chunks
@@ -174,6 +174,7 @@ void *recv_data(void *arg)
                         if (chunk_size == 0)
                         {
                             is_file_complete = true;
+                            gettimeofday(&end, NULL);
                             free(data);
                         }
                         else
@@ -188,7 +189,7 @@ void *recv_data(void *arg)
             }
             free(filename);
         }
-
+        
         // Process alert
         char *alertMsg;
         size_t alert_size;
@@ -198,11 +199,10 @@ void *recv_data(void *arg)
 
         if (alert != 1)
         {
+            log_time_taken(start, end, thread_index);
             char ack_message[256];
             snprintf(ack_message, sizeof(ack_message), "step (%d): Received files", step);
             send_data_chunk(receiver, ack_message, strlen(ack_message) + 1);
-            gettimeofday(&end, NULL);
-            log_time_taken(start, end, thread_index);
         }
 
         switch (alert)
@@ -226,7 +226,7 @@ int main()
 {
     printf("Starting Receiver...\n");
     context = zmq_ctx_new();
-    pthread_t partial_data1, partial_data2;
+    pthread_t partial_data1;
     int *thread_index1 = malloc(sizeof(int));
     *thread_index1 = 0;
     pthread_create(&partial_data1, NULL, recv_data, thread_index1);
