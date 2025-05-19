@@ -44,7 +44,7 @@ sender.c : line 15
 #define DETICATED_IP "Shared Receiver Interface IP"
 ```
 
-sender.c : line 157 (1 will send through shared, 0 will send through dedicated)
+sender.c : line 221 (1 will send through shared, 0 will send through dedicated)
 ```sh
 args1.thread_index = 1 or 0;
 ```
