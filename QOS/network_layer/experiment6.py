@@ -77,7 +77,10 @@ def run_experiment() -> None:
                     bandwidth_mbits = (avg_predicted_bandwidth * 8) / 1000000
                     
                     # Apply TC action with appropriate ceiling based on prediction
-                    assigned_bandwidth = coefficient * bandwidth_mbits 
+                    assigned_bandwidth = coefficient * bandwidth_mbits
+                    # Write assigned bandwidth to a file for logging
+                    with open("assigned_bandwidth.txt", "a") as f:
+                        f.write(f"{time.time()}: {assigned_bandwidth}\n")
 
                     action.update_tc_class_20(switch_port, assigned_bandwidth)
                     

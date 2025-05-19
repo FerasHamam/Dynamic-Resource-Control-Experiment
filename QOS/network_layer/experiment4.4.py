@@ -18,7 +18,7 @@ def run_experiment() -> None:
     GATHERING_WINDOW = 1200
     STEP_SIZE = 60
     MAX_BANDWIDTH = 370  # Example max bandwidth in Mbit/sec, adjust as needed
-    P = 0 # P [0,1] for priority
+    P = 0.5 # P [0,1] for priority
     K1 = 1  # Example coefficient, adjust as needed
     B = 0  # Example intercept, adjust as needed
     # Initialize TC action handler
@@ -48,6 +48,10 @@ def run_experiment() -> None:
                         summed_data = np.array(port_data)
                     else:
                         summed_data += np.array(port_data)
+                    # Print how much zero data is in the port_data
+                    print(f"Port {port} data length: {len(port_data)}")
+                    print(f"Port {port} zero data length: {len([x for x in port_data if x == 0])}")
+            
 
             if summed_data is None or len(summed_data) == 0:
                 print("Error: No data available for prediction.")
@@ -59,16 +63,22 @@ def run_experiment() -> None:
             try:
                 # Get prediction for future values
                 prediction = predictor.predict(summed_data)
+                #write prediction to file
+                with open("prediction.txt", "w") as f:
+                    f.write(str(prediction))
                 for i in range(0, len(prediction), STEP_SIZE):
-                    next_second_prediction = prediction[i:i+STEP_SIZE] if len(prediction) >= i+STEP_SIZE else prediction[i:]
-                    
-                    if len(next_second_prediction) == 0:
+                    fft_prediction = prediction[i:i+STEP_SIZE] if len(prediction) >= i+STEP_SIZE else prediction[i:]
+                    # print info about this if len(prediction) >= i+STEP_SIZE else prediction[i:]
+                    print(len(prediction) >= i+STEP_SIZE)
+                    if len(fft_prediction) == 0:
                         print("Error: Prediction length is zero, resetting pointer and creating new prediction.")
                         break
                     
+                    # fft_prediction = [x for x in fft_prediction if x > 0]
+                    
                     # Calculate average predicted bandwidth for the next second
-                    avg_predicted_bandwidth = np.mean(next_second_prediction)
-                    print(f"Average predicted bandwidth for next second: {avg_predicted_bandwidth} bytes/sec")
+                    avg_predicted_bandwidth = np.mean(fft_prediction)
+                    print(f"Average predicted bandwidth for ({i},{i+STEP_SIZE}) : {avg_predicted_bandwidth * 8 / (1024 * 1024)} mbps")
                     
                     # Apply TC action based on prediction
                     # Convert bytes/sec to Mbit/sec (8 bits per byte, 1,000,000 bits per Mbit)
